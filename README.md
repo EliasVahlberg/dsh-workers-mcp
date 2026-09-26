@@ -112,6 +112,15 @@ Supervision-level presets (`read-only` / `supervised` / `autonomous`) come from
 the `tool-policy` dsh overlay in `deepseek-harness-eval/plugins/tool-policy/`.
 They control **scope, not security**: see that README and the skill.
 
+## The method
+
+[`orchestration/METHOD.md`](orchestration/METHOD.md) is the working method for
+a lead agent driving these workers: session start, hiring, the task lifecycle,
+when to answer a worker and when to escalate, approvals, merge/release, and a
+`FRICTION.md` loop for where the method did not fit. `orchestration/templates/`
+holds the per-project files (`PROJECT.md`, `DECISIONS.md`, `FRICTION.md`,
+`WORKER_BRIEF.md`) to copy into a workspace's `.orchestrator/`.
+
 ## Orchestrator state
 
 The server records what it observes, so the orchestrator cannot forget to. By
