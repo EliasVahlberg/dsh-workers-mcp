@@ -54,7 +54,7 @@ Two entry points:
   "mcpServers": {
     "dsh-workers": {
       "command": "uv",
-      "args": ["--directory", "/abs/path/to/dsh-workers-mcp", "run", "dsh-workers-mcp"],
+      "args": ["run", "--project", "/abs/path/to/dsh-workers-mcp", "dsh-workers-mcp"],
       "timeout": 600000
     }
   }
@@ -63,6 +63,13 @@ Two entry points:
 
 Use an absolute path. A relative one resolves against the agent's working
 directory, which is the whole reason this lives in its own repo.
+
+Use `uv run --project`, not `uv --directory`: `--directory` changes the working
+directory to this repo, which moves the default state directory (below) here
+instead of into the workspace the agent is working in.
+
+Server flags: `--state-dir <path>` sets where orchestrator state is written;
+`--no-state` records nothing and hides `dsh_roster`/`dsh_tasks`.
 
 The companion skill at [`skills/dsh-workers/SKILL.md`](skills/dsh-workers/SKILL.md)
 documents the protocol, the operational traps, and compaction semantics. For
@@ -88,6 +95,8 @@ kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-worke
 | `dsh_create` | create a worker, optionally at a permission preset | no |
 | `dsh_permission` | show or set a worker's supervision level | no |
 | `dsh_cancel` | interrupt a turn, and confirm the abort landed | briefly |
+| `dsh_roster` | managed workers: server-filled facts + your role/notes | no |
+| `dsh_tasks` | task records: server-tracked dispatch/return + your verdicts | no |
 
 Three groups carry the weight: **delegate** (`dsh_task`/`dsh_ask`), **report**
 (`dsh_status`/`dsh_grep`), **unblock** (`dsh_pending`/`dsh_answer`). The rest
@@ -95,12 +104,59 @@ keeps a long-lived roster legible.
 
 Read-only tools are safe to auto-approve. `dsh_task`, `dsh_ask`, `dsh_answer`,
 `dsh_goal`, `dsh_name`, `dsh_create`, `dsh_cancel`, `dsh_approve`, and
-`dsh_permission` change worker state. Gate them deliberately: a worker acts on an
+`dsh_permission` change worker state. `dsh_roster` and `dsh_tasks` only write the
+state directory. Gate them deliberately: a worker acts on an
 answer or approval with full tool access.
 
 Supervision-level presets (`read-only` / `supervised` / `autonomous`) come from
 the `tool-policy` dsh overlay in `deepseek-harness-eval/plugins/tool-policy/`.
 They control **scope, not security**: see that README and the skill.
+
+## Orchestrator state
+
+The server records what it observes, so the orchestrator cannot forget to. By
+default this goes to `.orchestrator/` in the directory the server was started
+from; `--state-dir` overrides it. It is created on the first tool call.
+
+```
+.orchestrator/
+  logs/YYYY-MM-DD.jsonl     every tool call: arguments, result, ok, duration
+  history/<sessionId>/
+    events.jsonl            incremental mirror of the dsh session log (chunks dropped)
+    mirror.json             its lastSeq cursor
+    state.json              last observed: last prompt/reply/turn end with times,
+                            context, preset, goal, blocked-on
+  roster.json               managed workers: `auto` (server) + `notes` (orchestrator)
+  tasks.json                tasks: fields, dispatch records, status history
+```
+
+The rule is **the server writes facts, the orchestrator writes judgment**, and
+judgment only goes through `dsh_roster` / `dsh_tasks`, so neither can clobber
+the other:
+
+- **Roster.** `dsh_create`, `dsh_task` and `dsh_ask` put a session on the
+  roster; `dsh_roster action=adopt` adds an existing one. Name, preset, model,
+  goal, last turn end and current task are filled in from observed calls. Role,
+  notes and retired are yours. `dsh_list` reconciles against dsh and reports
+  **drift** (renamed or re-preset in the UI, deleted) instead of silently
+  disagreeing.
+- **Tasks.** `dsh_tasks action=add` returns an id; pass it as `task_id` to
+  `dsh_task`. It is checked before anything is sent (unknown, closed, or owned
+  by another worker refuses the dispatch). The server then moves it
+  `dispatched → blocked → returned` as it observes the worker. `in-review`,
+  `merged`, `rejected`, `abandoned` are the orchestrator's calls.
+- **Only managed sessions are mirrored.** Inspecting a session with
+  `dsh_status` does not start recording it.
+- **Cached state is "last observed".** Every snapshot carries `observedAt`;
+  while dsh is up, the live tools are the source of truth.
+- **Recording never changes a result.** If writing state fails after a call
+  succeeded, the success stands and a `[state: …]` note is appended, so the
+  orchestrator never re-sends work that already happened.
+
+Measured: the first mirror of a 12,649-event session (2,500 tool calls) takes
+4.6 s and 24 MB; later syncs of an unchanged session take 0.3 s. Keep
+`logs/` and `history/` out of version control: they hold full worker
+transcripts.
 
 ## Two facts worth knowing before you build on this
 
@@ -125,7 +181,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-108 tests, no live server needed. They cover the places where being wrong is
+127 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

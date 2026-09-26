@@ -106,7 +106,10 @@ def text_of(event: dict, include_reasoning: bool = False) -> str:
     etype = event.get("type", "")
 
     if etype in ("assistant/message", "user/message", "tool/result"):
-        message = data.get("message") or {}
+        # assistant/tool events nest content under `message`; user/message
+        # carries it directly on `data` (verified on live events). Reading only
+        # `message` made every real prompt read as empty.
+        message = data.get("message") or data
         content = message.get("content")
         if isinstance(content, str):
             return content

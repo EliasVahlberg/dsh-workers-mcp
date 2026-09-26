@@ -40,6 +40,8 @@ python3 tools/dshctl/dshctl.py ask <session> "question"
 | Hire a new worker | `dsh_create` (+ `permission`) | no |
 | Set its supervision level | `dsh_permission` | no |
 | Interrupt a running turn | `dsh_cancel` | briefly, to confirm the abort |
+| Your team: roles, notes, last observed state | `dsh_roster` | no |
+| Your task records and verdicts | `dsh_tasks` | no |
 
 The three groups matter more than the individual tools: **delegate**
 (`dsh_task`/`dsh_ask`), **report** (`dsh_status`/`dsh_grep`), and **unblock**
@@ -59,6 +61,33 @@ one immediately, so it is safe to call either way.
 `mode` on `dsh_task`/`dsh_ask` is real mailbox semantics: `queue` appends to the
 worker's inbox and waits for its current turn to finish; `steer` interrupts the
 running turn to redirect it. Default `queue`.
+
+## Your own memory: the state directory
+
+Your session ends and compacts too. The server keeps what it observed in the
+state directory (`.orchestrator/` where it was started, or `--state-dir`), so a
+new orchestrator session starts from files, not from your recollection:
+
+1. **Start of session:** `dsh_roster` (who is on the team, their roles, current
+   task, last turn end) and `dsh_tasks` (what is open, dispatched, blocked,
+   returned). Returned tasks are waiting for your judgment.
+2. **Catching up on one worker:** `dsh_roster action=show session=…` returns its
+   `state.json`: last real prompt and reply with timestamps, last turn end,
+   context use, blocked-on. It is *last observed* (`observedAt`); confirm with
+   `dsh_status` before acting on it.
+3. **Dispatch through a task:** `dsh_tasks action=add` (with checkable
+   `acceptance`), then `dsh_task … task_id=T-00n`. You do not record the
+   dispatch or the return; the server does. You record the verdict:
+   `dsh_tasks action=update status=merged|rejected|in-review note=…`.
+4. **Judgment goes through the tools, never by editing the JSON.** Role and
+   notes: `dsh_roster action=set|note`. The files are rewritten atomically by
+   the server; a hand edit can be lost or break them.
+5. **Drift:** `dsh_list` flags managed workers renamed or re-preset outside
+   this server, or deleted. Resolve it; do not ignore it.
+
+Audit trail: `logs/*.jsonl` has every tool call you made with its result;
+`history/<id>/events.jsonl` mirrors each managed worker's full log, readable
+with `grep`/`jq` even when dsh is down.
 
 ## A blocked worker looks exactly like a finished one
 

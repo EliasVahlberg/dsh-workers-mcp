@@ -13,15 +13,22 @@ server RPC methods: the orchestrator needs a handful of operations
 
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import sys
+import time
 import traceback
 
 try:  # installed as a package
-    from dsh_workers_mcp import dshctl
+    from dsh_workers_mcp import dshctl, state as state_mod
 except ImportError:  # run directly as a script from this directory
     import dshctl  # type: ignore[no-redef]
+    import state as state_mod  # type: ignore[no-redef]
+
+# The orchestrator state directory (see state.py). Set by main(); None disables
+# state recording entirely, which is also what a bare import / the tests get.
+STATE: "state_mod.State | None" = None
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "dsh-workers", "version": "0.1.0"}
@@ -112,6 +119,11 @@ def _tools() -> list[dict]:
                     "session": SESSION_ARG,
                     "prompt": {"type": "string"},
                     "mode": {"type": "string", "enum": ["queue", "steer"], "default": "queue"},
+                    "task_id": {"type": "string", "description": (
+                        "Optional tasks.json id (e.g. 'T-003'). Checked BEFORE sending: "
+                        "unknown, closed, or owned-by-another-worker ids refuse the "
+                        "dispatch. When given, the dispatch is recorded on the task and "
+                        "the task moves to dispatched, then blocked/returned as observed.")},
                 },
                 "required": ["session", "prompt"],
             },
@@ -371,6 +383,62 @@ def _tools() -> list[dict]:
                 "required": ["session", "rpc_id", "outcome"],
             },
         },
+        {
+            "name": "dsh_roster",
+            "description": (
+                "The orchestrator's roster of managed workers (roster.json in the state "
+                "dir). Identity, preset, model, goal, last turn end and current task are "
+                "filled in by the server from observed calls; you add judgment: a role, "
+                "notes, retired. 'show' lists workers, or with session shows one worker "
+                "plus its last-observed state (last prompt/reply with times, context, "
+                "blocked). 'adopt' puts an existing session on the roster (dsh_create, "
+                "dsh_task and dsh_ask adopt automatically). 'note' appends a timestamped "
+                "note. 'set' changes role and/or retired."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["show", "adopt", "note", "set"],
+                               "default": "show"},
+                    "session": SESSION_ARG,
+                    "role": {"type": "string"},
+                    "text": {"type": "string", "description": "for 'note'"},
+                    "retired": {"type": "boolean", "description": "for 'set'"},
+                    "include_retired": {"type": "boolean", "default": False},
+                },
+            },
+        },
+        {
+            "name": "dsh_tasks",
+            "description": (
+                "Task records (tasks.json in the state dir). 'add' creates a task "
+                "(status open) and returns its id. Pass that id as task_id to dsh_task; "
+                "the server then records the dispatch and moves the task to dispatched, "
+                "blocked (a wait found it waiting on you) and returned (its turn ended). "
+                "Those are facts. Judgment is yours via 'update': in-review, merged, "
+                "rejected, abandoned, or back to open, plus notes, owner, branch, "
+                "worktree, acceptance, depends_on. 'list' hides closed tasks unless "
+                "include_closed or a status filter is given."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["list", "show", "add", "update"],
+                               "default": "list"},
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "status": {"type": "string", "enum": list(state_mod.TASK_STATUSES)},
+                    "owner": SESSION_ARG,
+                    "acceptance": {"type": "string",
+                                   "description": "what 'done' means, checkable"},
+                    "depends_on": {"type": "array", "items": {"type": "string"}},
+                    "branch": {"type": "string"},
+                    "worktree": {"type": "string"},
+                    "note": {"type": "string"},
+                    "include_closed": {"type": "boolean", "default": False},
+                },
+            },
+        },
     ]
 
 
@@ -438,6 +506,52 @@ DISPATCH = {
         objective=a.get("objective"), max_rounds=a.get("max_rounds"))),
 }
 
+# Tools that exist only with a state directory.
+STATE_TOOLS = {
+    "dsh_roster": state_mod.cmd_roster,
+    "dsh_tasks": state_mod.cmd_tasks,
+}
+
+
+def call_tool(name: str, arguments: dict) -> str:
+    """
+    Run one tool, recording it in the state dir when one is configured.
+
+    Recording must never turn a call that succeeded against dsh into a
+    reported failure, or the orchestrator would retry work that already
+    happened. So a state-layer failure after the call is appended to the
+    result as a visible note, and logged, rather than raised.
+    """
+    if name in STATE_TOOLS:
+        if STATE is None:
+            raise dshctl.RpcError(f"{name} needs a state directory; the server was "
+                                  f"started with --no-state")
+        return json.dumps(STATE_TOOLS[name](STATE, arguments), indent=2,
+                          ensure_ascii=False)
+    if STATE is not None:
+        state_mod.before_call(STATE, name, arguments)  # may refuse the call
+    text = DISPATCH[name](arguments)
+    if STATE is None:
+        return text
+    try:
+        enriched = state_mod.after_call(STATE, name, arguments, text)
+        if enriched is not None:
+            text = json.dumps(enriched, indent=2, ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        traceback.print_exc(file=sys.stderr)
+        text += (f"\n\n[state: the call succeeded, but recording it in "
+                 f"{STATE.root} failed: {exc}]")
+    return text
+
+
+def _log(name: str, arguments: dict, text: str, ok: bool, started: float) -> None:
+    if STATE is None:
+        return
+    try:
+        STATE.log_call(name, arguments, text, ok, int((time.time() - started) * 1000))
+    except Exception:  # noqa: BLE001 - logging must not break the transport
+        traceback.print_exc(file=sys.stderr)
+
 
 def handle(request: dict) -> dict | None:
     """Return a JSON-RPC response, or None for notifications."""
@@ -455,33 +569,30 @@ def handle(request: dict) -> dict | None:
         return None
 
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": _tools()}}
+        tools = [t for t in _tools() if STATE is not None or t["name"] not in STATE_TOOLS]
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": tools}}
 
     if method == "tools/call":
         params = request.get("params") or {}
         name = params.get("name")
         arguments = params.get("arguments") or {}
-        if name not in DISPATCH:
+        if name not in DISPATCH and name not in STATE_TOOLS:
             return {"jsonrpc": "2.0", "id": request_id,
                     "error": {"code": -32601, "message": f"unknown tool {name}"}}
+        started = time.time()
         try:
-            text = DISPATCH[name](arguments)
-            return {"jsonrpc": "2.0", "id": request_id, "result": {
-                "content": [{"type": "text", "text": text or "(no output)"}],
-                "isError": False,
-            }}
+            text = call_tool(name, arguments) or "(no output)"
+            ok = True
         except dshctl.RpcError as exc:
-            return {"jsonrpc": "2.0", "id": request_id, "result": {
-                "content": [{"type": "text", "text": f"error: {exc}"}],
-                "isError": True,
-            }}
+            text, ok = f"error: {exc}", False
         except Exception:  # noqa: BLE001 - report, never kill the transport
             traceback.print_exc(file=sys.stderr)
-            return {"jsonrpc": "2.0", "id": request_id, "result": {
-                "content": [{"type": "text",
-                             "text": f"internal error:\n{traceback.format_exc()}"}],
-                "isError": True,
-            }}
+            text, ok = f"internal error:\n{traceback.format_exc()}", False
+        _log(name, arguments, text, ok, started)
+        return {"jsonrpc": "2.0", "id": request_id, "result": {
+            "content": [{"type": "text", "text": text}],
+            "isError": not ok,
+        }}
 
     if request_id is None:
         return None
@@ -489,7 +600,20 @@ def handle(request: dict) -> dict | None:
             "error": {"code": -32601, "message": f"unsupported method {method}"}}
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    global STATE
+    parser = argparse.ArgumentParser(prog="dsh-workers-mcp")
+    parser.add_argument("--state-dir", help=(
+        "orchestrator state directory (logs, history mirror, roster, tasks). "
+        "Default: .orchestrator in the directory the server is started from. "
+        "Created on the first tool call, not at startup."))
+    parser.add_argument("--no-state", action="store_true",
+                        help="record nothing; dsh_roster and dsh_tasks are unavailable")
+    args = parser.parse_args(argv)
+    if not args.no_state:
+        STATE = state_mod.State(state_mod.resolve_state_dir(args.state_dir))
+        print(f"dsh-workers: state dir {STATE.root}", file=sys.stderr)
+
     for line in sys.stdin:
         line = line.strip()
         if not line:

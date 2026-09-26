@@ -48,7 +48,7 @@ def test_unsupported_request_gets_an_error() -> None:
 def test_every_dispatchable_tool_is_declared() -> None:
     """A tool in DISPATCH but absent from tools/list is invisible to a client."""
     declared = {tool["name"] for tool in server._tools()}
-    assert declared == set(server.DISPATCH)
+    assert declared == set(server.DISPATCH) | set(server.STATE_TOOLS)
 
 
 def test_tools_list_covers_the_expected_surface() -> None:
@@ -62,6 +62,8 @@ def test_tools_list_covers_the_expected_surface() -> None:
         "dsh_pending", "dsh_answer", "dsh_approve",
         # manage
         "dsh_create", "dsh_cancel", "dsh_goal", "dsh_name", "dsh_permission",
+        # orchestrator state (only listed when a state dir is configured)
+        "dsh_roster", "dsh_tasks",
     }
 
 
