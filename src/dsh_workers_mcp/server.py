@@ -506,6 +506,39 @@ DISPATCH = {
         objective=a.get("objective"), max_rounds=a.get("max_rounds"))),
 }
 
+# Presets this server refuses to apply, unless started with --allow-full-access.
+#
+# The orchestrator's worker-facing tools are meant to be auto-approved, so the
+# lead can answer and dispatch without a human clicking through every call.
+# That is only safe if the one unconfined preset is out of its reach: enforced
+# here, where a prompt injected into the lead cannot talk its way past it,
+# rather than left as a line in its instructions.
+FORBIDDEN_PRESETS = {"danger-full-access"}
+# Host slash commands that change a session's supervision knobs. Refused as
+# prompt text too: dsh documents a prompt that is exactly one '/…' text block
+# as a host command, and routing has differed from that in practice.
+_KNOB_COMMANDS = ("/permission", "/sandbox", "/approval")
+
+
+def check_policy(name: str, arguments: dict) -> None:
+    """Refuse a call that would widen a worker's permissions past the allowed set."""
+    wanted = None
+    if name == "dsh_permission":
+        wanted = arguments.get("preset")
+    elif name == "dsh_create":
+        wanted = arguments.get("permission")
+    if wanted in FORBIDDEN_PRESETS:
+        raise dshctl.RpcError(
+            f"preset {wanted!r} is refused by this server (started without "
+            f"--allow-full-access). It is the human's call: ask them to set it.")
+    if name in ("dsh_task", "dsh_ask"):
+        head = (arguments.get("prompt") or "").lstrip().lower()
+        if head.startswith(_KNOB_COMMANDS):
+            raise dshctl.RpcError(
+                "a prompt starting with a permission/sandbox/approval slash command is "
+                "refused; use dsh_permission to change a worker's preset")
+
+
 # Tools that exist only with a state directory.
 STATE_TOOLS = {
     "dsh_roster": state_mod.cmd_roster,
@@ -528,6 +561,7 @@ def call_tool(name: str, arguments: dict) -> str:
                                   f"started with --no-state")
         return json.dumps(STATE_TOOLS[name](STATE, arguments), indent=2,
                           ensure_ascii=False)
+    check_policy(name, arguments)  # may refuse the call
     if STATE is not None:
         state_mod.before_call(STATE, name, arguments)  # may refuse the call
     text = DISPATCH[name](arguments)
@@ -609,7 +643,12 @@ def main(argv: list[str] | None = None) -> int:
         "Created on the first tool call, not at startup."))
     parser.add_argument("--no-state", action="store_true",
                         help="record nothing; dsh_roster and dsh_tasks are unavailable")
+    parser.add_argument("--allow-full-access", action="store_true", help=(
+        "let dsh_permission / dsh_create apply danger-full-access. Off by default, "
+        "so the worker tools can be auto-approved for an orchestrator"))
     args = parser.parse_args(argv)
+    if args.allow_full_access:
+        FORBIDDEN_PRESETS.clear()
     if not args.no_state:
         STATE = state_mod.State(state_mod.resolve_state_dir(args.state_dir))
         print(f"dsh-workers: state dir {STATE.root}", file=sys.stderr)

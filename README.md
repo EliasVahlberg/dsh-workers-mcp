@@ -69,7 +69,9 @@ directory to this repo, which moves the default state directory (below) here
 instead of into the workspace the agent is working in.
 
 Server flags: `--state-dir <path>` sets where orchestrator state is written;
-`--no-state` records nothing and hides `dsh_roster`/`dsh_tasks`.
+`--no-state` records nothing and hides `dsh_roster`/`dsh_tasks`;
+`--allow-full-access` lets `dsh_permission`/`dsh_create` apply
+`danger-full-access` (refused by default).
 
 The companion skill at [`skills/dsh-workers/SKILL.md`](skills/dsh-workers/SKILL.md)
 documents the protocol, the operational traps, and compaction semantics. For
@@ -104,7 +106,12 @@ keeps a long-lived roster legible.
 
 Read-only tools are safe to auto-approve. `dsh_task`, `dsh_ask`, `dsh_answer`,
 `dsh_goal`, `dsh_name`, `dsh_create`, `dsh_cancel`, `dsh_approve`, and
-`dsh_permission` change worker state. `dsh_roster` and `dsh_tasks` only write the
+`dsh_permission` change worker state. For an orchestrator that must keep
+workers moving without a human in the loop, auto-approving them is the point,
+and the server makes that bounded: it refuses `danger-full-access` (and
+permission/sandbox/approval slash commands sent as prompts) unless started
+with `--allow-full-access`. So the widest a lead can make a worker is
+`autonomous`/`supervised`, whatever it is talked into. `dsh_roster` and `dsh_tasks` only write the
 state directory. Gate them deliberately: a worker acts on an
 answer or approval with full tool access.
 
@@ -190,7 +197,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-127 tests, no live server needed. They cover the places where being wrong is
+136 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable
