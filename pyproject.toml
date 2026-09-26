@@ -1,0 +1,46 @@
+[project]
+name = "dsh-workers-mcp"
+version = "0.1.0"
+description = "MCP server for driving long-lived DeepSeek Harness (dsh) agent sessions as persistent workers: dispatch, unblock, inspect, and steer them from an orchestrating agent."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Elias Vahlberg" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "deepseek-harness",
+    "dsh",
+    "agent-orchestration",
+    "multi-agent",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+
+# Deliberately empty. The runtime is stdlib-only -- including a hand-rolled
+# WebSocket reader -- so this can be dropped beside any agent harness without
+# pulling in a dependency tree. Do not add a runtime dependency without a
+# reason that outweighs that.
+dependencies = []
+
+[project.scripts]
+dsh-workers-mcp = "dsh_workers_mcp.server:main"
+dshctl = "dsh_workers_mcp.dshctl:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dsh_workers_mcp"]

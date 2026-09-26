@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# uv
+.uv/
+# uv.lock IS tracked: zero runtime deps, so it only pins the dev toolchain,
+# and committing it makes `uv sync` reproducible (same convention as aseprite-mcp).
+
+# pytest
+.pytest_cache/
+
+# editors
+.vscode/
+.idea/
+*.swp
