@@ -10,6 +10,7 @@ for the places where being wrong is quiet.
 from __future__ import annotations
 
 import io
+import json
 import time
 
 import pytest
@@ -180,10 +181,15 @@ def test_every_documented_turn_end_kind_survives(monkeypatch) -> None:
 # always produce a list.
 
 class _Args:
+    """Stands in for the argparse namespace the cmd_* functions expect."""
+
     def __init__(self, **kw) -> None:
+        # Defaults for the fields build_answers reads whether or not set.
         self.answer = kw.get("answer")
         self.answers = kw.get("answers")
         self.custom = kw.get("custom")
+        for key, value in kw.items():
+            setattr(self, key, value)
 
 
 def test_build_answers_from_pairs() -> None:
@@ -463,3 +469,79 @@ def test_answers_are_matched_by_position_not_id() -> None:
 def test_question_without_options_accepts_custom_only() -> None:
     free = [{"id": "q1", "question": "describe"}]
     dshctl.validate_answers([{"id": "q1", "selected": [], "custom": "text"}], free)
+
+
+# ----------------------------------------------- cancel reports outcome, not receipt
+#
+# session.cancel returns {accepted:true} unconditionally -- verified identical
+# for an idle session and a mid-flight one. An orchestrator trusting the receipt
+# can believe it stopped work that had already finished and committed.
+
+def test_cancel_on_an_idle_session_reports_that_nothing_was_stopped(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(dshctl, "find_session",
+                        lambda *a, **k: {"sessionId": "s1", "running": False})
+    monkeypatch.setattr(dshctl, "last_turn_end",
+                        lambda *a, **k: {"seq": 10, "kind": "completed"})
+    called = []
+    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: called.append(a) or {})
+
+    dshctl.cmd_cancel(_Args(session="s1", base="http://x", timeout=1.0))
+    out = json.loads(capsys.readouterr().out)
+    assert out["cancelled"] is False
+    assert "already idle" in out["reason"]
+    assert called == [], "must not send a cancel for a session that is not running"
+
+
+def test_cancel_confirms_a_real_abort(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(dshctl, "find_session",
+                        lambda *a, **k: {"sessionId": "s1", "running": True})
+    monkeypatch.setattr(dshctl, "head_seq", lambda *a, **k: 100)
+    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: {"accepted": True})
+    monkeypatch.setattr(dshctl, "wait_for_turn_end", lambda *a, **k: (
+        True, {"turnEnd": {"seq": 101, "kind": "aborted",
+                           "reason": {"kind": "user"}}}))
+
+    dshctl.cmd_cancel(_Args(session="s1", base="http://x", timeout=1.0))
+    out = json.loads(capsys.readouterr().out)
+    assert out["cancelled"] is True
+    assert out["turnEnd"]["kind"] == "aborted"
+
+
+def test_cancel_that_loses_the_race_is_not_reported_as_cancelled(monkeypatch, capsys) -> None:
+    """The turn finished on its own terms, so its work stands."""
+    monkeypatch.setattr(dshctl, "find_session",
+                        lambda *a, **k: {"sessionId": "s1", "running": True})
+    monkeypatch.setattr(dshctl, "head_seq", lambda *a, **k: 100)
+    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: {"accepted": True})
+    monkeypatch.setattr(dshctl, "wait_for_turn_end", lambda *a, **k: (
+        True, {"turnEnd": {"seq": 101, "kind": "completed"}}))
+
+    dshctl.cmd_cancel(_Args(session="s1", base="http://x", timeout=1.0))
+    out = json.loads(capsys.readouterr().out)
+    assert out["cancelled"] is False
+    assert "finished before" in out["note"]
+    assert out["receipt"] == {"accepted": True}, "receipt kept, just not trusted"
+
+
+# ---------------------------------------------------------------- session naming
+
+def test_name_surfaces_normalisation(monkeypatch, capsys) -> None:
+    """A silently truncated or stripped title would misidentify a worker."""
+    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s1"})
+    monkeypatch.setattr(dshctl, "rpc",
+                        lambda *a, **k: {"title": "implementer", "seq": 7})
+    dshctl.cmd_name(_Args(session="s1", base="http://x",
+                          title="implementer\n\nand more text"))
+    out = json.loads(capsys.readouterr().out)
+    assert out["title"] == "implementer"
+    assert "note" in out
+
+
+def test_name_is_quiet_when_accepted_verbatim(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s1"})
+    monkeypatch.setattr(dshctl, "rpc",
+                        lambda *a, **k: {"title": "implementer", "seq": 7})
+    dshctl.cmd_name(_Args(session="s1", base="http://x", title="implementer"))
+    out = json.loads(capsys.readouterr().out)
+    assert "note" not in out
+    assert out["seq"] == 7

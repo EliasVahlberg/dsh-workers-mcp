@@ -28,12 +28,21 @@ python3 tools/dshctl/dshctl.py ask <session> "question"
 | Deep insight into one worker | `dsh_status` | no |
 | Search one worker's own history | `dsh_grep` | no |
 | Find which worker discussed X | `dsh_search` | no |
+| Which model a worker runs on | `dsh_models` | no |
 | Delegate real work | `dsh_task` | **no** — returns immediately |
 | Quick question / design opinion | `dsh_ask` | yes, until turn end |
 | Wait for a running worker | `dsh_wait` | yes |
 | **What a worker is blocked on** | `dsh_pending` | no |
 | **Unblock it** | `dsh_answer` | no |
 | Read/revise its standing objective | `dsh_goal` | no |
+| **Name a worker by its role** | `dsh_name` | no |
+| Hire a new worker | `dsh_create` | no |
+| Interrupt a running turn | `dsh_cancel` | briefly, to confirm the abort |
+
+The three groups matter more than the individual tools: **delegate**
+(`dsh_task`/`dsh_ask`), **report** (`dsh_status`/`dsh_grep`), and **unblock**
+(`dsh_pending`/`dsh_answer`). The rest is bookkeeping that keeps a long-lived
+roster legible.
 
 Delegation pattern: `dsh_task` to dispatch, then `dsh_status` to poll
 `state` until it flips `running` → `idle`, then read `latestReply`. The
@@ -112,6 +121,40 @@ worker continued, confirming the selection it had been given.
 tool approval. Nothing in this interface can *grant* one, so an unattended
 worker that hits an approval gate stays stopped until a human acts. Treat a
 persistent `approval/requested` as a stall that needs a person, not a bug.
+
+## Name your workers, immediately
+
+An unnamed roster is unusable. Titles are auto-generated from the conversation,
+and for a long-lived worker the conversation opens with orientation boilerplate,
+so the generated title describes the *setup*, not the worker. Measured on a real
+roster: the main working session was titled `## Orientation Read AGENTS.md
+first` — a fragment of its own prompt markdown — and two others were titled with
+truncated first-prompt text. Four sessions on one project, none distinguishable.
+
+`dsh_name` fixes that, and the name **pins**: automatic regeneration is
+superseded for the life of the session (verified — a title survived a subsequent
+turn unchanged). That is what makes it an identifier rather than a description.
+
+Name by **standing role, not current task** — the session outlives the task:
+
+- good: `implementer — machine entities`, `reviewer — takes positions`,
+  `sandbox — safe to break`
+- bad: `fixing the belt test`, `v0.6 fuel bands` (stale within the hour)
+
+Name a worker when you create it, before dispatching anything. Titles are
+collapsed to one line and capped at 80 UTF-8 bytes; `dsh_name` echoes the
+accepted string and flags it when normalisation changed what you sent.
+
+## Cancelling: the receipt is not evidence
+
+`session.cancel` returns `{accepted: true}` unconditionally — byte-identical for
+an idle session and a mid-flight one. Trusting it means believing you stopped
+work that may have already finished and committed its side effects.
+
+`dsh_cancel` therefore reports `cancelled` from the turn's actual ending: a real
+interruption lands `turn/end` with kind `aborted`, reason `user`. If the turn
+ended as `completed` instead, the cancel lost the race and **that turn's work
+stands** — check the worktree before assuming otherwise.
 
 ## Turn-end reason, and why polling `state` is not enough
 

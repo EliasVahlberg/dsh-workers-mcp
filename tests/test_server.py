@@ -54,9 +54,14 @@ def test_every_dispatchable_tool_is_declared() -> None:
 def test_tools_list_covers_the_expected_surface() -> None:
     declared = {tool["name"] for tool in server._tools()}
     assert declared == {
-        "dsh_list", "dsh_status", "dsh_grep", "dsh_search",
-        "dsh_task", "dsh_ask", "dsh_wait", "dsh_models",
-        "dsh_create", "dsh_cancel", "dsh_pending", "dsh_answer", "dsh_goal",
+        # observe
+        "dsh_list", "dsh_status", "dsh_grep", "dsh_search", "dsh_models",
+        # delegate
+        "dsh_task", "dsh_ask", "dsh_wait",
+        # unblock
+        "dsh_pending", "dsh_answer",
+        # manage
+        "dsh_create", "dsh_cancel", "dsh_goal", "dsh_name",
     }
 
 

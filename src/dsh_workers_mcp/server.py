@@ -264,11 +264,49 @@ def _tools() -> list[dict]:
         },
         {
             "name": "dsh_cancel",
-            "description": "Cancel a worker's currently running turn.",
+            "description": (
+                "Interrupt a worker's running turn. Reports whether the abort "
+                "actually landed, not merely that the request was accepted: the "
+                "server returns an identical receipt for an idle session, so "
+                "`cancelled` here reflects a real `aborted` turn end. A cancel "
+                "that loses the race leaves the turn's work standing."
+            ),
             "inputSchema": {
                 "type": "object",
-                "properties": {"session": SESSION_ARG},
+                "properties": {
+                    "session": SESSION_ARG,
+                    "timeout": {"type": "number", "default": 30,
+                                "description": "seconds to wait for the abort to land"},
+                },
                 "required": ["session"],
+            },
+        },
+        {
+            "name": "dsh_name",
+            "description": (
+                "Pin a human-meaningful title on a worker session, so the roster "
+                "reads as a team with roles instead of a list of UUIDs. Titles are "
+                "otherwise auto-generated from the conversation, which makes "
+                "long-lived workers on one project near-indistinguishable. An "
+                "explicit name PINS it: automatic regeneration is superseded for "
+                "the life of the session, so it stays a stable identifier. Name a "
+                "worker by its standing role, not its current task — the title "
+                "outlives the task. Shows up in dsh_list."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": SESSION_ARG,
+                    "title": {
+                        "type": "string",
+                        "description": (
+                            "Collapsed to one line and truncated to 80 UTF-8 bytes; "
+                            "the accepted result is echoed back. Must contain "
+                            "visible characters."
+                        ),
+                    },
+                },
+                "required": ["session", "title"],
             },
         },
     ]
@@ -319,7 +357,10 @@ DISPATCH = {
     "dsh_create": lambda a: _capture(dshctl.cmd_create, Args(
         cwd=a.get("cwd"), preset=a.get("preset"), session_id=None,
         provider=a.get("provider"), model=a.get("model"))),
-    "dsh_cancel": lambda a: _capture(dshctl.cmd_cancel, Args(session=a["session"])),
+    "dsh_cancel": lambda a: _capture(dshctl.cmd_cancel, Args(
+        session=a["session"], timeout=a.get("timeout", 30.0))),
+    "dsh_name": lambda a: _capture(dshctl.cmd_name, Args(
+        session=a["session"], title=a["title"])),
     "dsh_pending": lambda a: _capture(dshctl.cmd_pending, Args(
         session=a.get("session"), settle=1.5, timeout=8.0)),
     "dsh_answer": lambda a: _capture(dshctl.cmd_answer, Args(

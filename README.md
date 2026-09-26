@@ -83,12 +83,17 @@ kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-worke
 | `dsh_ask` | quick question, wait for the reply | yes |
 | `dsh_wait` | wait for a running worker's turn to end | yes |
 | `dsh_goal` | read/revise the standing objective | no |
+| `dsh_name` | pin a role name on a worker, so the roster is legible | no |
 | `dsh_create` | create a worker | no |
-| `dsh_cancel` | cancel the running turn | no |
+| `dsh_cancel` | interrupt a turn, and confirm the abort landed | briefly |
+
+Three groups carry the weight: **delegate** (`dsh_task`/`dsh_ask`), **report**
+(`dsh_status`/`dsh_grep`), **unblock** (`dsh_pending`/`dsh_answer`). The rest
+keeps a long-lived roster legible.
 
 Read-only tools are safe to auto-approve. `dsh_task`, `dsh_ask`, `dsh_answer`,
-`dsh_goal`, `dsh_create`, and `dsh_cancel` change worker state — gate them
-deliberately, since a worker acts on an answer with full tool access.
+`dsh_goal`, `dsh_name`, `dsh_create`, and `dsh_cancel` change worker state — gate
+them deliberately, since a worker acts on an answer with full tool access.
 
 ## Two facts worth knowing before you build on this
 
@@ -113,11 +118,18 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-73 tests, no live server needed. They cover the places where being wrong is
+97 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
-swallowed, answer batching, WebSocket framing, and the rule that no tool failure
-may escape `handle()` and kill the stdio transport.
+swallowed, answer batching and its non-obvious validation rules, an unreachable
+server reporting "nothing pending", a cancel that lost its race reporting
+success, WebSocket framing, and the rule that no tool failure may escape
+`handle()` and kill the stdio transport.
+
+Every tool has additionally been exercised against a live `dsh` server. Verified
+behaviours worth knowing: the block/unblock loop works **unattended**, with no
+browser or UI client in the path; an explicitly set title **pins**, surviving
+later turns; and `dsh_cancel` separates a real abort from a lost race.
 
 ## Provenance
 

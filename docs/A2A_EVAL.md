@@ -52,6 +52,45 @@ split as our `dsh_task`/`dsh_ask`, **and A2A's default is also blocking**. Two
 independent designs landing on the same distinction with the same default is
 mild evidence it's the natural decomposition rather than an arbitrary one.
 
+## How much of A2A do we actually cover?
+
+Counting A2A's core RPC surface, ignoring transport bindings:
+
+| A2A capability | Us | Notes |
+|---|---|---|
+| `SendMessage` (blocking) | ✅ `dsh_ask` | same default |
+| `SendMessage` (`returnImmediately`) | ✅ `dsh_task` | same split |
+| `CancelTask` | ✅ `dsh_cancel` | ours additionally reports whether the abort *landed*; A2A returns the task |
+| `GetTask` | ✅ `dsh_status` | ours is a superset — see the observability section |
+| `ListTasks` | ⚠️ `dsh_list` | ours lists *sessions* (workers); A2A lists *tasks*. Coarser |
+| `TaskState.INPUT_REQUIRED` | ⚠️ `dsh_pending` | function covered, not a typed state |
+| `SendStreamingMessage` / `SubscribeToTask` | ❌ | we poll or block; the mux could back it |
+| Push-notification config CRUD | ❌ | webhooks; no use for them on loopback |
+| `GetAgentCard` / `GetExtendedAgentCard` | ❌ | no discovery concept; we know our workers |
+| `Task.artifacts` | ❌ | deliberate — see below |
+| `contextId` / `taskId` split | ❌ | conflated into "session"; the real gap |
+| `referenceTaskIds` | ❌ | cross-informing is prose today |
+
+**Roughly the delegation and lifecycle half, and none of the interop half.** Of
+the three ❌ items that are not deliberate declines, only the `contextId`/`taskId`
+split is a design gap we would actually feel; streaming and artifacts are
+answered differently rather than missed (see below), and Agent Cards solve
+discovery, a problem we do not have with four named local workers.
+
+This is the expected shape. The overlap is exactly where both designs answer
+"how do I hand work to another agent and find out how it went", and the
+divergence is exactly where A2A's opacity principle bites.
+
+### On artifacts specifically
+
+A2A returns `Task.artifacts` — structured, typed outputs. We return the worker's
+reply text and nothing else, which sounds like a gap and mostly is not: our
+workers produce *commits in a worktree*, and the artifact is the diff. Git is the
+result channel, and it is a better one than a typed blob because it is
+independently verifiable after the fact by a party that never saw the task. The
+place this would bite is a worker whose output is genuinely a value rather than a
+change to a tree — none exist yet.
+
 ## The non-overlap: observability, and why it is structural
 
 A2A's stated guiding principle is *"Opaque Execution: Agents collaborate ...
@@ -100,11 +139,20 @@ A dsh turn is the closest thing to an A2A task, and turns are only addressable
 by seq, not by a handle we chose at dispatch time. Adopting the split would
 mean `dsh_task` returning a task handle rather than just accepting the dispatch.
 
-### 2. `TaskState.INPUT_REQUIRED` — a genuine gap, and dsh is extensible here
+### 2. `TaskState.INPUT_REQUIRED` — now covered at the interface, still absent from the type
 
-A2A models "the agent has paused and needs more input" as a first-class
-terminal-ish state. We cannot distinguish that from completion: both surface as
-`idle`.
+**Superseded in part.** This section originally recorded input-required as a flat
+gap on the grounds that a blocked worker and a finished one both surface as
+`idle`. That observation is correct about the *turn-end reason* and wrong about
+the *interface*: dsh does ship a full structured question mechanism, and
+`dsh_pending` reads it. The two states are now distinguishable — a blocked worker
+appears in `dsh_pending` with its `rpcId` and question, a finished one does not.
+`dsh_answer` settles it. Verified end to end, unattended, with no UI client.
+
+So the functional equivalent of `INPUT_REQUIRED` is covered. What remains absent
+is the *typed state*: there is no `input-required` variant in `TurnEndReasonMap`,
+so the fact must be discovered by a second call rather than read off the turn's
+ending. A2A's shape is still better here — one field instead of a join.
 
 Verified against `packages/core/session/src/types.ts:155-177`. dsh's complete
 `TurnEndReasonMap` is:

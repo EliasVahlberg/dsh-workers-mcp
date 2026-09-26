@@ -791,9 +791,84 @@ def cmd_models(args) -> int:
 
 
 def cmd_cancel(args) -> int:
+    """
+    Interrupt a running turn, and report what actually happened.
+
+    `session.cancel` returns `{accepted: true}` unconditionally — including for a
+    session that is already idle. Measured: cancelling an idle session and
+    cancelling a mid-flight one produce byte-identical receipts. So the receipt
+    is not evidence, and an orchestrator that trusts it can believe it stopped
+    work that had in fact already finished and committed its side effects.
+
+    The real evidence is the turn's own ending: a genuine interruption lands a
+    `turn/end` with kind `aborted` and reason `user`. This waits for that and
+    reports it, so a no-op cancel is visibly a no-op.
+    """
     summary = find_session(args.session, args.base)
-    print(json.dumps(rpc("session.cancel", {"sessionId": summary["sessionId"]},
-                         base=args.base), indent=2))
+    session_id = summary["sessionId"]
+
+    if not summary.get("running"):
+        # Nothing to interrupt. Say so rather than passing on a hollow receipt.
+        print(json.dumps({
+            "cancelled": False,
+            "reason": "session was already idle — nothing was running to cancel",
+            "lastTurnEnd": last_turn_end(session_id, args.base),
+        }, indent=2))
+        return 0
+
+    before = head_seq(session_id, args.base)
+    receipt = rpc("session.cancel", {"sessionId": session_id}, base=args.base)
+    completed, info = wait_for_turn_end(
+        session_id, args.base, before, timeout=args.timeout, poll=2.0)
+    end = info.get("turnEnd") or last_turn_end(session_id, args.base)
+    kind = (end or {}).get("kind")
+    print(json.dumps({
+        # `aborted` is the abort landing; any other kind means the turn ended on
+        # its own terms and the cancel raced it.
+        "cancelled": kind == "aborted",
+        "receipt": receipt,
+        "turnEnd": end,
+        **({} if completed else
+           {"note": f"turn had not ended within {args.timeout}s; "
+                    f"the worker may be in a non-interruptible step"}),
+        **({"note": f"turn ended as {kind!r}, not 'aborted' — it finished before "
+                    f"the cancel took effect, so its work stands"}
+           if completed and kind not in ("aborted", None) else {}),
+    }, indent=2))
+    return 0
+
+
+def cmd_name(args) -> int:
+    """
+    Pin a human-meaningful title on a session.
+
+    Titles are otherwise auto-generated from the conversation, which makes a
+    roster of long-lived workers read as near-identical restatements of the same
+    project. An explicit rename appends a `session/title` event with the `user`
+    source, which *pins* it: in-flight automatic generation is superseded and
+    later messages schedule none. So a name the orchestrator assigns stays put
+    for the life of the session, which is the property that makes it usable as
+    an identifier rather than a description.
+
+    Normalisation (packages/session/session-title/src/normalize.ts) strips ANSI
+    and control sequences, collapses whitespace to one line, and truncates to a
+    UTF-8 byte budget (80 in the base bundle) without splitting a code point.
+    A title that normalises to empty is rejected as `title-invalid`, so the
+    accepted string is echoed back rather than assumed.
+    """
+    summary = find_session(args.session, args.base)
+    result = rpc("session.rename",
+                 {"sessionId": summary["sessionId"], "title": args.title},
+                 base=args.base)
+    accepted = result.get("title")
+    print(json.dumps({
+        "sessionId": summary["sessionId"],
+        "title": accepted,
+        "seq": result.get("seq"),
+        # Surfaced so a silent truncation or strip is visible to the caller.
+        **({"note": f"normalised from {args.title!r} (title bytes are capped)"}
+           if accepted != args.title else {}),
+    }, indent=2))
     return 0
 
 
@@ -875,9 +950,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_answer)
 
     p = subparsers.add_parser("goal", help="read or revise the persisted objective")
-    p.add_argument("action", choices=("show", "set", "edit", "pause", "resume",
-                                      "complete", "clear"))
+    # Session first, matching every other subcommand. The reverse order was an
+    # inconsistency that reliably produced a confusing "invalid choice" error.
     p.add_argument("session")
+    p.add_argument("action", nargs="?", default="show",
+                   choices=("show", "set", "edit", "pause", "resume",
+                            "complete", "clear"))
     p.add_argument("--objective", help="required for set, optional for edit")
     p.add_argument("--max-rounds", type=int, default=None, dest="max_rounds")
     p.set_defaults(func=cmd_goal)
@@ -896,7 +974,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = subparsers.add_parser("cancel", help="cancel the running turn")
     p.add_argument("session")
+    p.add_argument("--timeout", type=float, default=30.0,
+                   help="seconds to wait for the abort to actually land")
     p.set_defaults(func=cmd_cancel)
+
+    p = subparsers.add_parser("name", help="pin a title on a session")
+    p.add_argument("session")
+    p.add_argument("title", help="normalised to one line, capped at 80 UTF-8 bytes")
+    p.set_defaults(func=cmd_name)
 
     return parser
 
