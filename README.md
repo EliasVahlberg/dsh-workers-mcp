@@ -92,7 +92,7 @@ kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-worke
 | `dsh_task` | dispatch real work | no |
 | `dsh_ask` | quick question, wait for the reply | yes |
 | `dsh_wait` | wait for a turn to end, or return early when the worker blocks | yes |
-| `dsh_goal` | read/revise the standing objective | no |
+| `dsh_goal` | read or drive a goal: an autonomous loop (`set` needs `start=true`) | no |
 | `dsh_name` | pin a role name on a worker, so the roster is legible | no |
 | `dsh_create` | create a worker, optionally at a permission preset | no |
 | `dsh_permission` | show or set a worker's supervision level | no |
@@ -197,7 +197,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-135 tests, no live server needed. They cover the places where being wrong is
+139 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

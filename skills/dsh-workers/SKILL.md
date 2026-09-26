@@ -248,14 +248,23 @@ session: empty text, 878 characters of reasoning. Do not treat an empty reply as
 "the worker said nothing"; check `lastTurnEnd` and `dsh_pending` before
 concluding anything.
 
-## Goals: the orientation that survives compaction
+## Goals are an autonomous loop, not a note
 
-`dsh_goal` reads and revises a session's standing objective. This matters
-because a summary is lossy prose, whereas the goal is **structured state** —
-making it the durable home for what a long-lived worker is for. `show` reads it
-(from the `goal` session projection, the only place current state lives); `set`
-creates; `edit` revises objective and/or round cap; `pause`/`resume`/`complete`/
-`clear` move its phase.
+**`dsh_goal set` makes the worker start working, immediately and unattended.**
+dsh creates every goal `active` (`goal.create` accepts only "a fresh active
+revision-one goal", `packages/goal/goal/src/fold.ts`), and the goal round
+driver then feeds an idle worker round after round, up to `maxGoalRounds`
+(default 256), with no task from anyone. Learned the hard way: an orchestrator
+set goals as "standing orientation" on two fresh hires, and the implementer
+invented work at once: a worktree, a branch and edits to ROADMAP and
+`PlotGraph`. `pause` did not stop the round already running. So the server
+refuses `set` unless `start=true`.
+
+Use a goal only to hand a worker an objective to pursue on its own (a
+Ralph-style loop), with a small `max_rounds`. Standing orientation belongs in
+the brief, and in `AGENTS.md`, which dsh re-asserts after compaction anyway.
+`show` reads the goal; `edit` revises objective or round cap; `pause`/`resume`/
+`complete`/`clear` move its phase; stop a running round with `dsh_cancel`.
 
 Mutations carry the current `{id, revision}` ref, so a concurrent edit is
 rejected rather than silently overwritten — re-read before editing.
@@ -349,12 +358,14 @@ result before concluding something is absent.
 
 **`session.selectModel` rewrites the GLOBAL default.** Pinning a model on one
 session persists that choice to `agent-default-model` in
-`$DSH_HOME/settings.yaml`, so creating a single qwen-pinned worker silently made
-qwen the default for every future session. The per-session pin and the global
-default are independent *after* the fact, so restoring the file fixes new
-sessions without disturbing the pinned worker. Re-read that block after pinning
-anything — otherwise a later "why is this worker on the wrong model?" is very
-hard to trace.
+`$DSH_HOME/settings.yaml` (api-proxy `selectModel` calls
+`saveDefaultModelSelection` unconditionally), so creating a single qwen-pinned
+worker silently made qwen the default for every future session. The pin and the
+default are independent after the fact, so restoring the file fixes new
+sessions without disturbing the pinned worker. **`dsh_create` now does that
+itself** and reports `defaultModel: restored | unchanged`; verified live (file
+byte-identical afterwards, and the next unpinned session got deepseek). A pin
+made any other way (the web UI, raw `session.selectModel`) still re-defaults.
 
 **`session.search` is opt-in and ships disabled.** Both the base and web-app
 bundles set the session-query index to `openAt: never`, so the RPC fails with

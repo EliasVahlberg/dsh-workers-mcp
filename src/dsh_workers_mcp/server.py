@@ -183,7 +183,9 @@ def _tools() -> list[dict]:
             "description": (
                 "Create a new worker session. Requires cwd and/or agent preset — the "
                 "server accepts an empty payload and would silently make a blank "
-                "session, so this refuses that. Optionally pins provider/model."
+                "session, so this refuses that. Optionally pins provider/model; dsh "
+                "saves any pin as the global default, so this puts the previous "
+                "default back and reports it as defaultModel."
             ),
             "inputSchema": {
                 "type": "object",
@@ -266,13 +268,15 @@ def _tools() -> list[dict]:
         {
             "name": "dsh_goal",
             "description": (
-                "Read or revise a worker's persisted objective. The goal is the one "
-                "piece of orientation that survives compaction as structured state "
-                "rather than as prose in a summary, so it is the durable home for what "
-                "a long-lived worker is for. 'show' reads it; 'set' creates one; 'edit' "
-                "revises objective and/or max_rounds; pause/resume/complete/clear move "
-                "its phase. Mutations use the current revision, so a concurrent edit "
-                "is rejected rather than silently overwritten."
+                "Read or drive a worker's goal. A dsh goal is an AUTONOMOUS LOOP, not "
+                "a note: 'set' creates it active and the worker starts pursuing it "
+                "immediately, round after round (max_rounds, default 256), with no "
+                "task from you. So 'set' requires start=true. Do not use goals for "
+                "standing orientation; the brief is for that. 'show' reads; 'edit' "
+                "revises objective/max_rounds; pause/resume/complete/clear move its "
+                "phase. Pausing does not stop a round already running: dsh_cancel "
+                "that. Mutations use the current revision, so a concurrent edit is "
+                "rejected."
             ),
             "inputSchema": {
                 "type": "object",
@@ -285,6 +289,9 @@ def _tools() -> list[dict]:
                     "objective": {"type": "string",
                                   "description": "Required for set, optional for edit."},
                     "max_rounds": {"type": "integer"},
+                    "start": {"type": "boolean", "default": False,
+                              "description": "Required true for set: confirms you "
+                              "want the worker to start working on the goal now."},
                 },
                 "required": ["session"],
             },
@@ -503,7 +510,8 @@ DISPATCH = {
         answers=json.dumps(a["answers"]), answer=None, custom=None)),
     "dsh_goal": lambda a: _capture(dshctl.cmd_goal, Args(
         session=a["session"], action=a.get("action", "show"),
-        objective=a.get("objective"), max_rounds=a.get("max_rounds"))),
+        objective=a.get("objective"), max_rounds=a.get("max_rounds"),
+        start=a.get("start", False))),
 }
 
 # Presets this server refuses to apply, unless started with --allow-full-access.

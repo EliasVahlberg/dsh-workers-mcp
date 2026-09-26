@@ -28,6 +28,7 @@ import re
 import socket
 import sys
 import time
+from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -783,6 +784,13 @@ def cmd_goal(args) -> int:
     if args.action == "set":
         if not args.objective:
             raise RpcError("goal set requires --objective")
+        if not getattr(args, "start", False):
+            raise RpcError(
+                "goal set starts an autonomous goal loop at once: dsh creates every "
+                "goal active, and its round driver begins round 1 on an idle worker "
+                "with no task (maxGoalRounds defaults to 256). It is not a place for "
+                "standing orientation; use the brief for that. Pass start=true only "
+                "to hand the worker an objective to pursue unattended.")
         payload: dict = {"sessionId": session_id, "objective": args.objective}
         if args.max_rounds is not None:
             payload["maxGoalRounds"] = args.max_rounds
@@ -936,6 +944,67 @@ def cmd_wait(args) -> int:
     return 0 if completed else 2
 
 
+def settings_path() -> Path:
+    return Path(os.environ.get("DSH_HOME") or Path.home() / ".dsh") / "settings.yaml"
+
+
+_DEFAULT_MODEL_KEYS = ("provider", "model", "reasoningEffort")
+
+
+def default_model_lines(text: str) -> dict[str, str]:
+    """The `agent-default-model:` block's own key lines, verbatim, by key."""
+    found: dict[str, str] = {}
+    inside = False
+    for line in text.splitlines():
+        if line.startswith("agent-default-model:"):
+            inside = True
+            continue
+        if inside:
+            if line and not line[0].isspace():
+                break
+            key = line.strip().split(":", 1)[0]
+            if key in _DEFAULT_MODEL_KEYS and not line.strip().startswith("#"):
+                found[key] = line
+    return found
+
+
+def restore_default_model(before: str) -> bool:
+    """
+    Undo `session.selectModel`'s side effect on the global default.
+
+    dsh persists every per-session pin as `agent-default-model` (api-proxy
+    selectModel -> saveDefaultModelSelection, unconditional), so pinning one
+    reviewer to another model silently re-defaults every later session. Only
+    the block's key lines are put back; the rest of the file, including any
+    edit made meanwhile, is left as dsh wrote it. Returns True if it restored.
+    """
+    path = settings_path()
+    after = path.read_text()
+    old, new = default_model_lines(before), default_model_lines(after)
+    if old == new or not old:
+        return False
+    out, inside, pending = [], False, dict(old)
+    for line in after.splitlines(keepends=True):
+        if line.startswith("agent-default-model:"):
+            inside = True
+        elif inside and line.strip() and not line[0].isspace():
+            # Leaving the block: keys dsh dropped go back at its end.
+            out.extend(v + "\n" for v in pending.values())
+            pending, inside = {}, False
+        elif inside and not line.strip().startswith("#"):
+            key = line.strip().split(":", 1)[0]
+            if key in _DEFAULT_MODEL_KEYS:
+                # Replace in place, so the block keeps its order and comments.
+                if key in pending:
+                    out.append(pending.pop(key) + "\n")
+                continue
+        out.append(line)
+    if inside:
+        out.extend(v + "\n" for v in pending.values())
+    path.write_text("".join(out))
+    return default_model_lines(path.read_text()) == old
+
+
 def cmd_create(args) -> int:
     payload: dict = {}
     if args.cwd:
@@ -950,12 +1019,21 @@ def cmd_create(args) -> int:
                        "payload silently creates a blank session)")
     value = rpc("session.create", payload, base=args.base)
     if args.provider and args.model:
+        try:
+            before = settings_path().read_text()
+        except OSError:
+            before = None
         rpc("session.selectModel", {
             "sessionId": value["sessionId"],
             "provider": args.provider,
             "model": args.model,
         }, base=args.base)
         value["selectedModel"] = f"{args.provider}/{args.model}"
+        if before is None:
+            value["defaultModel"] = f"not checked: cannot read {settings_path()}"
+        else:
+            value["defaultModel"] = ("restored (dsh had re-defaulted to the pin)"
+                                     if restore_default_model(before) else "unchanged")
     if args.permission:
         # Applied before the first prompt, so no call ever runs under the default.
         value["permission"] = set_permission(value["sessionId"], args.permission, args.base)
@@ -1152,6 +1230,8 @@ def build_parser() -> argparse.ArgumentParser:
                             "complete", "clear"))
     p.add_argument("--objective", help="required for set, optional for edit")
     p.add_argument("--max-rounds", type=int, default=None, dest="max_rounds")
+    p.add_argument("--start", action="store_true",
+                   help="required for set: the goal loop starts at once")
     p.set_defaults(func=cmd_goal)
 
     p = subparsers.add_parser("create", help="create a worker session")

@@ -24,7 +24,7 @@ written down improves the method; one that is not is invisible.
   keep moving is most of your job. Save the human for what only the human can
   decide.
 - **Workers are team members.** Ask them for positions, tell them when someone
-  else's change affects them, and keep their goals current.
+  else's change affects them, and keep their orientation current.
 
 ## The state directory
 
@@ -57,13 +57,17 @@ have it.
 1. `dsh_create` with `cwd` = the workspace root and `permission` set. Never
    dispatch anything under the default.
 2. `dsh_name` with `<role> — <scope>`, e.g. `implementer — plot networks`.
-3. `dsh_goal set`: one paragraph of standing orientation (the role, the area it
-   owns, the conventions that matter). The goal survives the worker's
-   compaction; your prompts do not.
-4. `dsh_roster action=set role=…`.
-5. Its first task is the brief (`templates/WORKER_BRIEF.md`): what to read, the
-   conventions, how to report. Ask it to confirm understanding in under 1500
-   characters, and read that reply.
+3. `dsh_roster action=set role=…`.
+4. Its first task is the brief (`templates/WORKER_BRIEF.md`): the role, the area
+   it owns, what to read, the conventions, how to report. Ask it to confirm
+   understanding in under 1500 characters, and read that reply. The brief is
+   the standing orientation. `AGENTS.md` is re-asserted after compaction, and a
+   worker that loses a detail can re-read the docs the brief named.
+
+**Never use `dsh_goal` for orientation.** A goal is an autonomous loop: `set`
+starts the worker working on it at once, unattended, for up to 256 rounds (the
+server refuses `set` without `start=true`). Use one only to hand a worker an
+objective to pursue on its own, with a small `max_rounds`.
 
 | Role | Permission | Notes |
 |---|---|---|
@@ -141,7 +145,8 @@ say so in its brief.
 When a merge changes something another worker depends on (an interface, a
 shared file, a convention), `dsh_task mode=queue` it a short note: what
 changed, the commit, and whether it must rebase. When a decision changes a
-worker's standing orientation, `dsh_goal edit`, not just a prompt.
+worker's standing orientation, tell it plainly and point at the `DECISIONS.md`
+entry, so it can re-read it after compaction.
 
 ## Merge and release
 

@@ -125,7 +125,7 @@ re-send the same prompt.
 **Context.** Compaction is normal and does not degrade work (skill). Watch for
 the one real failure: `context.usedPct` climbing with no new summaries means an
 orphaned compaction lock; that worker needs a restart, which is a new session:
-hire, brief from its goal and its last report, retire the old one.
+hire, brief from its brief and its last report, retire the old one.
 
 ## 6. Verifying a returned task
 
@@ -213,8 +213,8 @@ branch if it holds anything worth reading later, and say so in the note.
   files, or depend on what changed? If yes, `dsh_task mode=queue`:
   "`<commit>` on main changes <X>. Rebase before your next commit / no action
   needed because …".
-- **A decision that changes a worker's standing orientation** goes into its
-  goal (`dsh_goal edit`), not only a prompt.
+- **A decision that changes a worker's standing orientation** goes into
+  `DECISIONS.md` first, then to the worker with a pointer to the entry.
 - **Team size.** Start with one implementer and one reviewer. Add an
   implementer only when you have a second task with a disjoint file scope and
   your turns are not already the bottleneck.
@@ -223,7 +223,7 @@ branch if it holds anything worth reading later, and say so in the note.
 
 Retire (set `roster` notes, no more dispatches) when its area is finished,
 its role no longer exists, or it needs a restart (§5). Leave the session in
-dsh; do not delete it. Its successor's brief includes the predecessor's goal,
+dsh; do not delete it. Its successor's brief includes the predecessor's brief,
 last report, and anything in `DECISIONS.md` for that area.
 
 ## 11. Reporting to the human
