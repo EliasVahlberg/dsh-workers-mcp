@@ -150,6 +150,15 @@ worker's standing orientation, `dsh_goal edit`, not just a prompt.
 - After merging, retire or rebase the worktree, and inform other workers (see
   above).
 
+## Checkpoints
+
+Commit the workspace's own repo (the `.orchestrator/` files you own, plus any
+workspace files) at the end of every lead session, and before dispatching work
+that edits workspace files outside a worktree. Worktrees protect code;
+checkpoints protect everything else, and git can only revert what was
+committed. Server-written files that are gitignored (logs, history) need no
+commit.
+
 ## Reports: asking for what you can check
 
 End every dispatch prompt with the report shape:
