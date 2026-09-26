@@ -78,13 +78,15 @@ kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-worke
 | `dsh_search` | full-text across every session, for attribution | no |
 | `dsh_models` | model, and reasoning-effort levels available | no |
 | `dsh_pending` | **what a worker is blocked on** | no |
-| `dsh_answer` | **unblock it** | no |
+| `dsh_answer` | **unblock it** (a question) | no |
+| `dsh_approve` | **unblock it** (a tool approval), after reading the real arguments | no |
 | `dsh_task` | dispatch real work | no |
 | `dsh_ask` | quick question, wait for the reply | yes |
-| `dsh_wait` | wait for a running worker's turn to end | yes |
+| `dsh_wait` | wait for a turn to end, or return early when the worker blocks | yes |
 | `dsh_goal` | read/revise the standing objective | no |
 | `dsh_name` | pin a role name on a worker, so the roster is legible | no |
-| `dsh_create` | create a worker | no |
+| `dsh_create` | create a worker, optionally at a permission preset | no |
+| `dsh_permission` | show or set a worker's supervision level | no |
 | `dsh_cancel` | interrupt a turn, and confirm the abort landed | briefly |
 
 Three groups carry the weight: **delegate** (`dsh_task`/`dsh_ask`), **report**
@@ -92,8 +94,13 @@ Three groups carry the weight: **delegate** (`dsh_task`/`dsh_ask`), **report**
 keeps a long-lived roster legible.
 
 Read-only tools are safe to auto-approve. `dsh_task`, `dsh_ask`, `dsh_answer`,
-`dsh_goal`, `dsh_name`, `dsh_create`, and `dsh_cancel` change worker state — gate
-them deliberately, since a worker acts on an answer with full tool access.
+`dsh_goal`, `dsh_name`, `dsh_create`, `dsh_cancel`, `dsh_approve`, and
+`dsh_permission` change worker state. Gate them deliberately: a worker acts on an
+answer or approval with full tool access.
+
+Supervision-level presets (`read-only` / `supervised` / `autonomous`) come from
+the `tool-policy` dsh overlay in `deepseek-harness-eval/plugins/tool-policy/`.
+They control **scope, not security**: see that README and the skill.
 
 ## Two facts worth knowing before you build on this
 
@@ -118,7 +125,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-97 tests, no live server needed. They cover the places where being wrong is
+108 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

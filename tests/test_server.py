@@ -59,9 +59,9 @@ def test_tools_list_covers_the_expected_surface() -> None:
         # delegate
         "dsh_task", "dsh_ask", "dsh_wait",
         # unblock
-        "dsh_pending", "dsh_answer",
+        "dsh_pending", "dsh_answer", "dsh_approve",
         # manage
-        "dsh_create", "dsh_cancel", "dsh_goal", "dsh_name",
+        "dsh_create", "dsh_cancel", "dsh_goal", "dsh_name", "dsh_permission",
     }
 
 

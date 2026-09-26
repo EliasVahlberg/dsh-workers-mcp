@@ -545,3 +545,105 @@ def test_name_is_quiet_when_accepted_verbatim(monkeypatch, capsys) -> None:
     out = json.loads(capsys.readouterr().out)
     assert "note" not in out
     assert out["seq"] == 7
+
+
+# ------------------------------------------------ approvals and permission presets
+
+def _approval(reason: str, call_id: str | None = "c1") -> dict:
+    return {"rpcId": "r1", "kind": "approval/requested", "sessionId": "s1",
+            "approvalId": "a1", "toolName": "bash", "callId": call_id, "reason": reason}
+
+
+def test_tool_policy_reason_is_marked_trusted(monkeypatch) -> None:
+    monkeypatch.setattr(dshctl, "tool_call_arguments", lambda *a: {"command": "x"})
+    out = dshctl.describe_approval(
+        _approval("git push publishes work [tool-policy: preset supervised]"), "b")
+    assert out["reasonAuthor"].startswith("tool-policy")
+
+
+def test_escalation_reason_is_marked_model_written(monkeypatch) -> None:
+    """A sandbox escalation's justification is written by the worker's model."""
+    monkeypatch.setattr(dshctl, "tool_call_arguments", lambda *a: {"command": "x"})
+    out = dshctl.describe_approval(
+        _approval("escalate sandbox to danger-full-access: you asked me to"), "b")
+    assert "untrusted" in out["reasonAuthor"]
+
+
+def test_approval_is_joined_to_its_real_arguments(monkeypatch) -> None:
+    """The request omits arguments; the approver must see what will actually run."""
+    events = [
+        {"type": "tool/call", "seq": 1, "data": {"callId": "other", "arguments": '{"command": "ls"}'}},
+        {"type": "tool/call", "seq": 2, "data": {"callId": "c1",
+                                                 "arguments": '{"command": "touch ~/x"}'}},
+    ]
+    monkeypatch.setattr(dshctl, "fetch_events", lambda *a, **k: events)
+    assert dshctl.tool_call_arguments("s1", "c1", "b") == {"command": "touch ~/x"}
+    assert dshctl.tool_call_arguments("s1", "missing", "b") is None
+
+
+def test_approve_refuses_a_question(monkeypatch) -> None:
+    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [
+        {"rpcId": "r1", "kind": "question/requested", "sessionId": "s1"}])
+    with pytest.raises(dshctl.RpcError, match="answer questions"):
+        dshctl.cmd_approve(_Args(session="s1", rpc_id="r1", outcome="rejected", base="b"))
+
+
+def test_approve_refuses_another_sessions_request(monkeypatch) -> None:
+    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [_approval("x")])
+    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s2"})
+    with pytest.raises(dshctl.RpcError, match="belongs to"):
+        dshctl.cmd_approve(_Args(session="s2", rpc_id="r1", outcome="allowed-once", base="b"))
+
+
+def test_approve_refuses_a_settled_request(monkeypatch) -> None:
+    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [])
+    with pytest.raises(dshctl.RpcError, match="not pending"):
+        dshctl.cmd_approve(_Args(session="s1", rpc_id="gone", outcome="rejected", base="b"))
+
+
+def test_permission_text_is_parsed() -> None:
+    match = dshctl._PRESET_LINE.search(
+        "current preset supervised (available: read-only, supervised, autonomous)")
+    assert match.group(1) == "supervised"
+
+
+def test_set_permission_rejects_unknown_preset(monkeypatch) -> None:
+    monkeypatch.setattr(dshctl, "get_permission",
+                        lambda *a: {"preset": "supervised", "available": ["supervised"]})
+    with pytest.raises(dshctl.RpcError, match="unknown preset"):
+        dshctl.set_permission("s1", "yolo", "b")
+
+
+def test_set_permission_verifies_by_reading_back(monkeypatch) -> None:
+    """The reported preset is derived from knobs; a switch that did not take must fail."""
+    reads = iter([{"preset": "supervised", "available": ["supervised", "autonomous"]},
+                  {"preset": "supervised", "available": ["supervised", "autonomous"]}])
+    monkeypatch.setattr(dshctl, "get_permission", lambda *a: next(reads))
+    monkeypatch.setattr(dshctl, "execute_command", lambda *a: {"kind": "success"})
+    with pytest.raises(dshctl.RpcError, match="now reports"):
+        dshctl.set_permission("s1", "autonomous", "b")
+
+
+def test_wait_returns_early_when_blocked(monkeypatch) -> None:
+    """A blocked worker reports running forever; waiting out the timeout is a deadlock."""
+    monkeypatch.setattr(dshctl.time, "sleep", lambda s: None)
+    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"running": True})
+    monkeypatch.setattr(dshctl, "fetch_events", lambda *a, **k: [])
+    monkeypatch.setattr(dshctl, "pending_requests",
+                        lambda *a, **k: [{"sessionId": "s1", "kind": "approval/requested"}])
+    completed, info = dshctl.wait_for_turn_end("s1", "b", 0, timeout=60, poll=0,
+                                               watch_pending=True)
+    assert completed is False and info["blocked"] is True
+
+
+def test_wait_ignores_other_sessions_pending(monkeypatch) -> None:
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(dshctl.time, "time", lambda: next(clock))
+    monkeypatch.setattr(dshctl.time, "sleep", lambda s: None)
+    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"running": True})
+    monkeypatch.setattr(dshctl, "fetch_events", lambda *a, **k: [])
+    monkeypatch.setattr(dshctl, "pending_requests",
+                        lambda *a, **k: [{"sessionId": "other", "kind": "approval/requested"}])
+    completed, info = dshctl.wait_for_turn_end("s1", "b", 0, timeout=30, poll=0,
+                                               watch_pending=True)
+    assert info.get("timedOut") is True

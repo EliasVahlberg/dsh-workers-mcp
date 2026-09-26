@@ -31,6 +31,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 DEFAULT_BASE = "http://127.0.0.1:3080"
 
@@ -455,6 +456,7 @@ def pending_requests(base: str, settle: float, max_seconds: float) -> list[dict]
                   if kind == "question/requested"
                   else {"approvalId": payload.get("approvalId"),
                         "toolName": payload.get("toolName"),
+                        "callId": payload.get("callId"),
                         "reason": payload.get("reason")})
         out[str(frame.get("rpcId"))] = {
             "rpcId": frame.get("rpcId"),
@@ -465,13 +467,172 @@ def pending_requests(base: str, settle: float, max_seconds: float) -> list[dict]
     return list(out.values())
 
 
+TOOL_POLICY_MARK = "[tool-policy:"
+
+
+def tool_call_arguments(session_id: str, call_id: str, base: str) -> object:
+    """
+    The arguments of one tool call, found by callId in the session log.
+
+    An approval request deliberately omits arguments (dsh attaches the prompt to
+    the already-streamed call instead of duplicating it), so without this join
+    an approver sees only a tool name and a reason -- and the reason is usually
+    model-written. The arguments are what is actually about to run.
+    """
+    for event in reversed(fetch_events(session_id, base, 12)):
+        data = event.get("data") or {}
+        if event.get("type") == "tool/call" and data.get("callId") == call_id:
+            raw = data.get("arguments")
+            try:
+                return json.loads(raw) if isinstance(raw, str) else raw
+            except ValueError:
+                return raw
+    return None
+
+
+def describe_approval(item: dict, base: str) -> dict:
+    """Add the tool arguments and say who wrote the reason."""
+    reason = item.get("reason") or ""
+    out = dict(item)
+    if item.get("callId"):
+        out["arguments"] = tool_call_arguments(item["sessionId"], item["callId"], base)
+    # tool-policy reasons come from our own config; everything else here --
+    # notably a sandbox escalation's justification -- is text the worker's model
+    # wrote, and a hijacked worker controls it.
+    out["reasonAuthor"] = ("tool-policy rule (trusted config)"
+                           if TOOL_POLICY_MARK in reason
+                           else "worker model (untrusted -- judge the arguments, not the prose)")
+    return out
+
+
 def cmd_pending(args) -> int:
     items = pending_requests(args.base, args.settle, args.timeout)
     if args.session:
         wanted = find_session(args.session, args.base)["sessionId"]
         items = [i for i in items if i.get("sessionId") == wanted]
+    items = [describe_approval(i, args.base) if i["kind"] == "approval/requested" else i
+             for i in items]
     print(json.dumps(items, indent=2))
     return 0
+
+
+def cmd_approve(args) -> int:
+    """
+    Grant or reject a pending tool approval.
+
+    `allowed-once` grants exactly the asked-about call and nothing wider;
+    `rejected` makes the tool return an error the model sees as a refusal.
+    Those are the only two outcomes the wire accepts.
+    """
+    pending = [i for i in pending_requests(args.base, 1.5, 8.0) if i["rpcId"] == args.rpc_id]
+    if not pending:
+        raise RpcError(f"rpcId {args.rpc_id!r} is not pending — already settled, "
+                       f"or the turn was interrupted. Re-read `pending`.")
+    item = pending[0]
+    if item["kind"] != "approval/requested":
+        raise RpcError(f"rpcId {args.rpc_id!r} is a {item['kind']}; answer questions "
+                       f"with `answer`, not `approve`.")
+    wanted = find_session(args.session, args.base)["sessionId"]
+    if item["sessionId"] != wanted:
+        raise RpcError(f"rpcId {args.rpc_id!r} belongs to {item['sessionId']}, not {wanted}")
+
+    body = json.dumps({
+        "type": "client-response",
+        "rpcId": args.rpc_id,
+        "result": {"ok": True, "value": {
+            "sessionId": item["sessionId"],
+            "approvalId": item["approvalId"],
+            "outcome": args.outcome,
+        }},
+    }).encode()
+    req = urllib.request.Request(f"{args.base}/api/respond", data=body,
+                                 headers={"content-type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            receipt = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        raise RpcError(f"respond: HTTP {exc.code}: "
+                       f"{exc.read()[:400].decode(errors='replace')}") from exc
+    print(json.dumps({"receipt": receipt, "outcome": args.outcome,
+                      "toolName": item.get("toolName"),
+                      "arguments": describe_approval(item, args.base).get("arguments")},
+                     indent=2))
+    return 0 if receipt.get("accepted") else 2
+
+
+def execute_command(session_id: str, line: str, base: str) -> dict:
+    """
+    Run a host slash command against one session, without sending it to the model.
+
+    This is the second RPC family (typert remotes): POST /api/<namespace>/<method>
+    with the payload wrapped in exactly one `args` object. Sending the same line
+    through `session.prompt` does NOT route it as a command -- the model receives
+    it as ordinary text and starts a turn. Verified the hard way.
+    """
+    body = json.dumps({"type": "client-request", "rpcId": f"cmd-{uuid.uuid4()}",
+                       "method": "commands/execute",
+                       "payload": {"args": {"agentId": session_id, "line": line,
+                                            "images": []}}}).encode()
+    req = urllib.request.Request(f"{base}/api/commands/execute", data=body,
+                                 headers={"content-type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            envelope = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        raise RpcError(f"commands/execute: HTTP {exc.code}: "
+                       f"{exc.read()[:400].decode(errors='replace')}") from exc
+    result = envelope.get("result") or {}
+    if not result.get("ok"):
+        raise RpcError(f"commands/execute: {json.dumps(result.get('error'))}")
+    value = result.get("value")
+    if value is None:
+        raise RpcError(f"{line.split()[0]!r} is not a registered command in this deployment")
+    return value["result"]
+
+
+_PRESET_LINE = re.compile(r"current preset (\S+) \(available: ([^)]*)\)")
+
+
+def get_permission(session_id: str, base: str) -> dict:
+    text = execute_command(session_id, "/permission", base).get("text", "")
+    match = _PRESET_LINE.search(text)
+    if not match:
+        raise RpcError(f"unexpected /permission reply: {text!r}")
+    return {"preset": match.group(1),
+            "available": [n.strip() for n in match.group(2).split(",") if n.strip()]}
+
+
+def set_permission(session_id: str, preset: str, base: str) -> dict:
+    before = get_permission(session_id, base)
+    if preset not in before["available"]:
+        raise RpcError(f"unknown preset {preset!r}; available: {before['available']}")
+    result = execute_command(session_id, f"/permission {preset}", base)
+    if result.get("kind") == "error":
+        raise RpcError(f"/permission {preset}: {result.get('text')}")
+    after = get_permission(session_id, base)
+    # Read back rather than trusting the command's success text: the preset a
+    # session *reports* is derived from its knobs, so a mismatch here would mean
+    # the switch did not take.
+    if after["preset"] != preset:
+        raise RpcError(f"switched to {preset!r} but session now reports {after['preset']!r}")
+    return {"previous": before["preset"], **after}
+
+
+def cmd_permission(args) -> int:
+    session_id = find_session(args.session, args.base)["sessionId"]
+    if args.preset:
+        if running_now(session_id, args.base) and not args.force:
+            raise RpcError("worker is mid-turn; the new preset would apply from its "
+                           "next tool call. Pass --force to switch anyway.")
+        out = set_permission(session_id, args.preset, args.base)
+    else:
+        out = get_permission(session_id, args.base)
+    print(json.dumps({"sessionId": session_id, **out}, indent=2))
+    return 0
+
+
+def running_now(session_id: str, base: str) -> bool:
+    return bool(find_session(session_id, base).get("running"))
 
 
 def build_answers(args) -> list[dict]:
@@ -653,8 +814,18 @@ def head_seq(session_id: str, base: str) -> int:
 
 
 def wait_for_turn_end(session_id: str, base: str, after_seq: int,
-                      timeout: float, poll: float) -> tuple[bool, dict]:
-    """Block until a turn/end lands after after_seq. Returns (completed, info)."""
+                      timeout: float, poll: float,
+                      watch_pending: bool = False) -> tuple[bool, dict]:
+    """
+    Block until a turn/end lands after after_seq. Returns (completed, info).
+
+    With watch_pending, also returns early -- completed=False, info["blocked"]
+    -- when the worker has an outstanding question or approval. Without that, a
+    worker waiting on an answer is indistinguishable from one still working: it
+    reports `running` and emits nothing, so a waiter sits out its whole timeout
+    (measured: 40 s timeout, approval pending the entire time, `running`
+    throughout). Blocking on an answer only the waiter can give is a deadlock.
+    """
     deadline = time.time() + timeout
     saw_running = False
     while time.time() < deadline:
@@ -669,6 +840,13 @@ def wait_for_turn_end(session_id: str, base: str, after_seq: int,
             if event.get("type") == "turn/end" and event.get("seq", -1) > after_seq:
                 return True, {"reason": (event.get("data") or {}).get("reason"),
                               "seq": event.get("seq")}
+        if watch_pending and running:
+            blocked = [item for item in pending_requests(base, 0.8, 4.0)
+                       if item.get("sessionId") == session_id]
+            if blocked:
+                return False, {"blocked": True, "pending": blocked,
+                               "hint": "answer with dsh_answer (questions) or "
+                                       "dsh_approve (approvals), then wait again"}
         # Idle again without ever going busy and no new turn: nothing was queued.
         if saw_running and not running:
             continue
@@ -698,7 +876,14 @@ def cmd_ask(args) -> int:
     started = time.time()
     send_prompt(session_id, args.prompt, args.base, args.mode)
     completed, info = wait_for_turn_end(
-        session_id, args.base, before, args.timeout, args.poll)
+        session_id, args.base, before, args.timeout, args.poll, watch_pending=True)
+    if info.get("blocked"):
+        # The worker asked something mid-reply. Returning now, rather than
+        # sitting out the timeout, is what lets the caller answer it.
+        print(json.dumps({"sessionId": session_id, "completed": False,
+                          "waitedSeconds": round(time.time() - started, 1),
+                          **info}, indent=2))
+        return 3
     seq, reply, reasoning = latest_reply(session_id, args.base, after_seq=before)
     print(json.dumps({
         "sessionId": session_id,
@@ -738,7 +923,10 @@ def cmd_wait(args) -> int:
         return 0 if last else 2
 
     completed, info = wait_for_turn_end(
-        session_id, args.base, after, args.timeout, args.poll)
+        session_id, args.base, after, args.timeout, args.poll, watch_pending=True)
+    if info.get("blocked"):
+        print(json.dumps({"completed": False, "waitedFromSeq": after, **info}, indent=2))
+        return 3
     print(json.dumps({"completed": completed, "waitedFromSeq": after,
                       "kind": (info.get("reason") or {}).get("kind"),
                       **info}, indent=2))
@@ -765,6 +953,9 @@ def cmd_create(args) -> int:
             "model": args.model,
         }, base=args.base)
         value["selectedModel"] = f"{args.provider}/{args.model}"
+    if args.permission:
+        # Applied before the first prompt, so no call ever runs under the default.
+        value["permission"] = set_permission(value["sessionId"], args.permission, args.base)
     print(json.dumps(value, indent=2))
     return 0
 
@@ -966,6 +1157,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session-id")
     p.add_argument("--provider")
     p.add_argument("--model")
+    p.add_argument("--permission",
+                   help="permission preset to apply before anything is dispatched "
+                        "(e.g. supervised, autonomous, read-only)")
     p.set_defaults(func=cmd_create)
 
     p = subparsers.add_parser("models", help="model catalog for a session")
@@ -977,6 +1171,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=float, default=30.0,
                    help="seconds to wait for the abort to actually land")
     p.set_defaults(func=cmd_cancel)
+
+    p = subparsers.add_parser("approve", help="grant or reject a pending tool approval")
+    p.add_argument("session")
+    p.add_argument("rpc_id")
+    p.add_argument("outcome", choices=("allowed-once", "rejected"))
+    p.set_defaults(func=cmd_approve)
+
+    p = subparsers.add_parser("permission", help="show or set a worker's permission preset")
+    p.add_argument("session")
+    p.add_argument("preset", nargs="?", help="omit to show the current preset")
+    p.add_argument("--force", action="store_true", help="switch even while mid-turn")
+    p.set_defaults(func=cmd_permission)
 
     p = subparsers.add_parser("name", help="pin a title on a session")
     p.add_argument("session")
