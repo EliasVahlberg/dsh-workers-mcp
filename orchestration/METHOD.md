@@ -3,7 +3,10 @@
 This is the working method for an orchestrator agent (the **lead**) that drives
 long-lived dsh sessions (the **workers**) through the `dsh-workers` MCP server.
 The skill (`skills/dsh-workers/SKILL.md`) covers the tools. This covers how to
-work with them.
+work with them, and `PLAYBOOKS.md` gives the step-by-step for each recurring
+situation: the session loop, cutting work, dispatch, unblocking, bad turn
+endings, verification, review, merge, parallel work, reporting. Templates:
+`templates/WORKER_BRIEF.md`, `DISPATCH.md`, `REVIEW.md`.
 
 It is a standard on purpose. Follow it, and when it does not fit, say so in
 `FRICTION.md` rather than quietly doing something else. A deviation that is
@@ -65,7 +68,8 @@ have it.
 | Role | Permission | Notes |
 |---|---|---|
 | implementer | `autonomous` (default) or `supervised` | owns one worktree and branch |
-| reviewer / verifier | `read-only` | reads and runs checks, never edits |
+| reviewer | `read-only` | reads diffs and code, never edits. Cannot build or test: the sandbox refuses the writes a build makes |
+| verifier | `autonomous` | runs checks in its own worktree of the branch; told not to edit or commit |
 | researcher | `read-only`, `supervised` if it needs the web | reports findings with sources |
 
 Use `supervised` only if the worker genuinely needs something that asks, and
@@ -161,7 +165,7 @@ commit.
 
 ## Reports: asking for what you can check
 
-End every dispatch prompt with the report shape:
+Dispatch with `templates/DISPATCH.md`. Its report shape is the minimum:
 
 ```
 Report in under 2000 characters:
@@ -184,3 +188,36 @@ Write an entry whenever:
 One entry: date, what happened, what you did, and what would have helped.
 These entries are the evidence for changing this method, so do not tidy them
 into successes.
+
+## Lessons
+
+Judgment the tools cannot enforce, each learned the hard way. Add to this when
+a `FRICTION.md` entry shows the same mistake twice.
+
+- **A report is a claim; a refusal is not a test.** Verify with your own run.
+  Likewise, when a model declines to do something dangerous, that tested its
+  judgment, not the guard behind it. Test the guard directly.
+- **Run the baseline before blaming the change.** When something fails after a
+  change, run the same thing on unmodified `main` first. Half of "I broke it"
+  predates you, and the fix is different.
+- **Look for the sibling that already works.** When one path fails and a
+  parallel path succeeds (a shell runner and a Python client doing the same
+  job), diff what they do before debugging from scratch. The answer is often
+  one step the working one has and the other lacks.
+- **Fixes peel in layers.** Under a new constraint (a sandbox, a second
+  checkout), each fix exposes the next failure. Expect several, re-run after
+  each, and do not declare done until the whole suite passes under the real
+  constraint, not a looser one.
+- **Checkpoint before an agent edits anything outside a worktree.** Git can
+  only revert what was committed.
+- **Workers inherit the habits of the sessions before them.** If earlier agents
+  in the project pushed, tagged or released, new ones will try. The preset
+  rejects it; your brief should say who does it instead.
+- **Mark your own caution as yours.** When you add a restriction the human
+  never set, say so where you write it ("lead's choice; ask Elias to change").
+  Otherwise it hardens into a rule nobody decided.
+- **Unused is not unneeded.** Before proposing to delete a command, file or
+  feature, find out what it is for and ask whoever owns it. It may be the only
+  way to do something rarely needed.
+- **Numbers come from the command, not memory.** Test counts, file sizes and
+  commit ids in a report or a doc are copied from output you just ran.
