@@ -9,6 +9,14 @@ touches or depends on. You are read-only: do not edit, and do not try to
 build or test (the sandbox refuses the writes a build makes). Reason from the
 code; say where a claim would need a run to confirm.
 
+Work in this order, and report what you have when you reach about 40 tool
+calls, even if unfinished (say what you did not get to):
+- first, the acceptance lines that state invariants (conservation, save/load,
+  concurrency, anything "never"/"always"): does each test actually measure
+  it, or could it pass while the invariant fails?
+- then the code paths those tests do not reach;
+- then everything else.
+
 Answer:
 1. Each acceptance line: met, not met, or cannot tell from the code, with the
    file and line that shows it.

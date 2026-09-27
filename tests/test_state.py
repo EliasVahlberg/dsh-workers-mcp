@@ -311,6 +311,22 @@ def test_closed_tasks_are_left_alone(dsh, state) -> None:
     assert len(json.loads(text(call("dsh_tasks", {"include_closed": True})))["tasks"]) == 1
 
 
+def test_rejected_task_goes_back_to_its_worker_by_dispatching_it(dsh, state) -> None:
+    """METHOD: send a rejection back to the same worker. The dispatch is the reopen."""
+    sid = dsh.add("session-aaaa1111")
+    tid = _task()
+    call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": tid})
+    call("dsh_tasks", {"action": "update", "id": tid, "status": "rejected",
+                       "note": "conservation asserts too weak"})
+    result = call("dsh_task", {"session": "aaaa1111", "prompt": "rework", "task_id": tid})
+    assert result["isError"] is False
+    task = state.tasks()["tasks"][tid]
+    assert task["status"] == "dispatched" and task["owner"] == sid
+    assert [h["status"] for h in task["history"]][-3:] == ["rejected", "open", "dispatched"]
+    assert task["history"][-2]["by"] == "server"
+    assert len(task["dispatches"]) == 2
+
+
 def test_task_updates_are_validated(dsh, state) -> None:
     tid = _task()
     assert call("dsh_tasks", {"action": "update", "id": tid, "status": "done"})["isError"]

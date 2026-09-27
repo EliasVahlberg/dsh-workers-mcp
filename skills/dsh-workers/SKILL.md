@@ -363,7 +363,11 @@ session persists that choice to `agent-default-model` in
 worker silently made qwen the default for every future session. The pin and the
 default are independent after the fact, so restoring the file fixes new
 sessions without disturbing the pinned worker. **`dsh_create` now does that
-itself** and reports `defaultModel: restored | unchanged`; verified live (file
+itself** and reports `defaultModel` as `unchanged: <p/m>` or `restored to <p/m>
+(dsh had saved … )`. Even pinning the default model itself rewrites the block:
+dsh saves the *resolved* selection, adding `reasoningEffort: high` for
+deepseek-flash, so that hire reports "restored" too (measured; not a race: the
+server handles calls one at a time); verified live (file
 byte-identical afterwards, and the next unpinned session got deepseek). A pin
 made any other way (the web UI, raw `session.selectModel`) still re-defaults.
 

@@ -224,5 +224,8 @@ a `FRICTION.md` entry shows the same mistake twice.
 - **Unused is not unneeded.** Before proposing to delete a command, file or
   feature, find out what it is for and ask whoever owns it. It may be the only
   way to do something rarely needed.
+- **Read a human's reply for unfilled slots.** A reply built from a template
+  can come back with its placeholders (`<yes/no>`) still in it. Act on what is
+  filled, proceed on the safe option for the rest, and ask again.
 - **Numbers come from the command, not memory.** Test counts, file sizes and
   commit ids in a report or a doc are copied from output you just ran.

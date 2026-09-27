@@ -968,7 +968,15 @@ def default_model_lines(text: str) -> dict[str, str]:
     return found
 
 
-def restore_default_model(before: str) -> bool:
+def describe_default(lines: dict[str, str]) -> str:
+    values = {k: v.split(":", 1)[1].strip() for k, v in lines.items()}
+    text = f"{values.get('provider', '?')}/{values.get('model', '?')}"
+    if "reasoningEffort" in values:
+        text += f" (reasoningEffort {values['reasoningEffort']})"
+    return text
+
+
+def restore_default_model(before: str) -> str | None:
     """
     Undo `session.selectModel`'s side effect on the global default.
 
@@ -976,13 +984,17 @@ def restore_default_model(before: str) -> bool:
     selectModel -> saveDefaultModelSelection, unconditional), so pinning one
     reviewer to another model silently re-defaults every later session. Only
     the block's key lines are put back; the rest of the file, including any
-    edit made meanwhile, is left as dsh wrote it. Returns True if it restored.
+    edit made meanwhile, is left as dsh wrote it.
+
+    Even a pin that matches the default changes the file: dsh saves the
+    resolved selection, which adds `reasoningEffort` for models that have one.
+    Returns what dsh had written when a restore happened, else None.
     """
     path = settings_path()
     after = path.read_text()
     old, new = default_model_lines(before), default_model_lines(after)
     if old == new or not old:
-        return False
+        return None
     out, inside, pending = [], False, dict(old)
     for line in after.splitlines(keepends=True):
         if line.startswith("agent-default-model:"):
@@ -1002,7 +1014,9 @@ def restore_default_model(before: str) -> bool:
     if inside:
         out.extend(v + "\n" for v in pending.values())
     path.write_text("".join(out))
-    return default_model_lines(path.read_text()) == old
+    if default_model_lines(path.read_text()) != old:
+        raise RpcError(f"could not restore agent-default-model in {path}; check it by hand")
+    return describe_default(new)
 
 
 def cmd_create(args) -> int:
@@ -1032,8 +1046,11 @@ def cmd_create(args) -> int:
         if before is None:
             value["defaultModel"] = f"not checked: cannot read {settings_path()}"
         else:
-            value["defaultModel"] = ("restored (dsh had re-defaulted to the pin)"
-                                     if restore_default_model(before) else "unchanged")
+            wrote = restore_default_model(before)
+            kept = describe_default(default_model_lines(before))
+            value["defaultModel"] = (f"unchanged: {kept}" if wrote is None else
+                                     f"restored to {kept} (dsh had saved the pin as "
+                                     f"the default: {wrote})")
     if args.permission:
         # Applied before the first prompt, so no call ever runs under the default.
         value["permission"] = set_permission(value["sessionId"], args.permission, args.base)

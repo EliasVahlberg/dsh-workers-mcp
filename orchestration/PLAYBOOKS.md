@@ -41,6 +41,12 @@ the roadmap is X. I'd cut it into A, B, C. Go?"
 - has acceptance you can check yourself, line by line:
   `make test passes`, `a scenario asserts the loader moves 30 flour`,
   `no file outside src/…/plot/ changes`. Never "works well" or "is clean";
+- names the **instrument** for every invariant, not only the property.
+  "No seed is lost (scenarios with counts)" was met literally with drop
+  windows that could not see a loss of 4 of 6; "asserted on an exact
+  level-wide count, per component, before and after each operation" could not
+  have been. A green suite says the tests pass, not that they measure the
+  right thing: read the assertions behind every invariant line (§6);
 - says what is out of scope, so the worker does not "improve" neighbours.
 
 **Research first when** the task depends on engine behaviour nobody has
@@ -150,7 +156,11 @@ its findings instead.
 
 ## 7. Reviews and positions
 
-**Reviewer on a finished task.** `templates/REVIEW.md`. A `read-only` reviewer
+**Reviewer on a finished task.** `templates/REVIEW.md`. Dispatch it in
+parallel with your own verification, never instead of it, and do not hold the
+implementer idle waiting for it: a review can take 30+ minutes. If your own
+check finds a blocking defect first, reject on that and fold the review's
+findings into the rework when they land (§8). A `read-only` reviewer
 cannot build or test: its sandbox refuses every write, and builds write. So it
 reads and reasons; the checks are yours (§6). If a review needs checks run, use
 a verifier on `autonomous` in its own worktree of the branch, told not to edit.
@@ -181,7 +191,9 @@ Tell both workers the decision (§9) so neither keeps arguing it in code.
 **Reject** with: what failed (the acceptance line, the evidence), what would
 pass, and whether to amend or add commits. Same worker, same worktree.
 `dsh_tasks update status=rejected note=…`, then re-dispatch with the same
-`task_id`.
+`task_id`; the server logs the reopen itself. If the worker is still mid-rework
+when new findings arrive (a late review), fold them in with `dsh_task
+mode=steer` rather than waiting for the round to end.
 
 **Merge**, when every line is ticked:
 1. The main checkout is clean (`git status --short` empty). If not, it is the

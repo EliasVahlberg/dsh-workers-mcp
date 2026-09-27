@@ -12,6 +12,8 @@ Never push.
 Acceptance (the lead checks each line itself):
 - <checkable line, e.g. `make test` passes>
 - <checkable line, e.g. a scenario in tests/… asserts X>
+- <for an invariant, the instrument: e.g. "an exact level-wide count per
+  component, asserted before and after each operation">
 - <scope line, e.g. only files under src/…/plot/ change>
 
 Out of scope: <neighbouring things it must not fix or refactor; say "report

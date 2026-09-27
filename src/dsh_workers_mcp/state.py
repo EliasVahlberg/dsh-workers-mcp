@@ -458,7 +458,9 @@ class State:
         task = self.tasks()["tasks"].get(task_id)
         if task is None:
             raise dshctl.RpcError(f"no task {task_id!r} — create it with dsh_tasks action=add")
-        if task["status"] in CLOSED:
+        # A rejection goes back to its worker (METHOD): dispatching it again IS the
+        # reopen, and record_dispatch logs it. Merged and abandoned stay final.
+        if task["status"] in CLOSED - {"rejected"}:
             raise dshctl.RpcError(f"{task_id} is {task['status']}; reopen it before dispatching")
         if task.get("owner") and task["owner"] != session_id:
             raise dshctl.RpcError(
@@ -477,6 +479,9 @@ class State:
                 "seqBefore": seq_before, "prompt": prompt[:PREVIEW_CHARS],
                 **({"promptTruncated": True} if len(prompt) > PREVIEW_CHARS else {}),
             })
+            if task["status"] == "rejected":
+                task["history"].append({"at": stamp, "status": "open", "by": "server",
+                                        "note": "reopened by re-dispatch after rejection"})
             if task["status"] != "dispatched":
                 task["status"] = "dispatched"
                 task["history"].append({"at": stamp, "status": "dispatched", "by": "server"})
