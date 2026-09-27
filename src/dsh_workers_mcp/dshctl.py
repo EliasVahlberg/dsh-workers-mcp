@@ -35,6 +35,7 @@ import urllib.request
 import uuid
 
 DEFAULT_BASE = "http://127.0.0.1:3080"
+HISTORY_PAGE = 200
 
 # Streaming deltas: redundant with the committed assistant/message that follows.
 NOISE_TYPES = {"assistant/chunk", "reasoning/chunk"}
@@ -1058,6 +1059,42 @@ def cmd_create(args) -> int:
     return 0
 
 
+def turn_end_seq(session_id: str, turn: int, base: str) -> int:
+    """The seq of turn `turn`'s turn/end, paging back through the history."""
+    before = None
+    while True:
+        value = rpc("session.history", {"sessionId": session_id, "maxMessages": HISTORY_PAGE,
+                                        **({"beforeSeq": before} if before else {})}, base=base)
+        events = [item.get("event") or item for item in value.get("events", [])]
+        for event in events:
+            if event.get("type") == "turn/end" and (event.get("data") or {}).get("turn") == turn:
+                return event["seq"]
+        if not value.get("hasMore") or not events:
+            raise RpcError(f"turn {turn} has no turn/end in this session's history")
+        before = min(event["seq"] for event in events)
+
+
+def cmd_fork(args) -> int:
+    """
+    Fork a session into a new one that keeps its history up to a turn boundary.
+
+    dsh forks on whole turns: an anchor inside a turn keeps that entire turn.
+    So `after_turn=N` (keep turns 1..N) is the unambiguous form; `at_seq`
+    passes dsh's own anchor through. Neither: up to the last completed turn.
+    """
+    source = find_session(args.session, args.base)["sessionId"]
+    payload: dict = {"sessionId": source}
+    if args.after_turn is not None:
+        payload["atSeq"] = turn_end_seq(source, args.after_turn, args.base)
+    elif args.at_seq is not None:
+        payload["atSeq"] = args.at_seq
+    value = rpc("session.fork", payload, base=args.base)
+    print(json.dumps({"sessionId": value["sessionId"], "forkedFrom": source,
+                      **({"atSeq": payload["atSeq"]} if "atSeq" in payload else {})},
+                     indent=2))
+    return 0
+
+
 def cmd_models(args) -> int:
     summary = find_session(args.session, args.base)
     value = rpc("session.models", {"sessionId": summary["sessionId"]}, base=args.base)
@@ -1261,6 +1298,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="permission preset to apply before anything is dispatched "
                         "(e.g. supervised, autonomous, read-only)")
     p.set_defaults(func=cmd_create)
+
+    p = subparsers.add_parser("fork", help="fork a session at a turn boundary")
+    p.add_argument("session")
+    p.add_argument("--after-turn", type=int, default=None, dest="after_turn")
+    p.add_argument("--at-seq", type=int, default=None, dest="at_seq")
+    p.set_defaults(func=cmd_fork)
 
     p = subparsers.add_parser("models", help="model catalog for a session")
     p.add_argument("session")

@@ -248,6 +248,30 @@ session: empty text, 878 characters of reasoning. Do not treat an empty reply as
 "the worker said nothing"; check `lastTurnEnd` and `dsh_pending` before
 concluding anything.
 
+## A provider can reject a session for good: fork it
+
+A turn that ends in `error` with `data_inspection_failed` ("Input text data may
+contain inappropriate content") was refused by the model provider's input
+filter, before the model saw anything. Seen on qwen-cloud. The filter judges
+the **whole request**, and every request re-sends the history, so once the
+offending text is in the history **every later turn fails**, whatever you send.
+Retrying and "keep payloads small" cannot help. A real reviewer session was
+lost this way over eleven turns.
+
+Known triggers, both text the worker itself produced: long, symbol-dense
+commit messages typed into a bash command (a heredoc), and raw byte dumps
+(`od -c`, `cat -A`). The workspace `AGENTS.md` carries the prevention: long
+text goes into a file made with the write tool, never into a command. Why the
+shell form is worse is not known for certain; it is escaped twice (shell
+quoting inside JSON), which makes dense text denser.
+
+Recovery: `dsh_fork after_turn=N`, where N is the last turn that ended
+normally before the first rejection. The fork keeps turns 1..N and nothing
+after, so the orientation survives and the poison does not. It is a new
+session: name it, set its permission, adopt it, and brief it from the lost
+turns' last good report. Record in `FRICTION.md` what the worker was doing when
+it was first rejected.
+
 ## Goals are an autonomous loop, not a note
 
 **`dsh_goal set` makes the worker start working, immediately and unattended.**

@@ -61,7 +61,7 @@ def test_tools_list_covers_the_expected_surface() -> None:
         # unblock
         "dsh_pending", "dsh_answer", "dsh_approve",
         # manage
-        "dsh_create", "dsh_cancel", "dsh_goal", "dsh_name", "dsh_permission",
+        "dsh_create", "dsh_cancel", "dsh_goal", "dsh_name", "dsh_permission", "dsh_fork",
         # orchestrator state (only listed when a state dir is configured)
         "dsh_roster", "dsh_tasks",
     }
@@ -156,3 +156,29 @@ def test_tool_output_is_captured_not_printed(monkeypatch, capsys) -> None:
     response = _call("dsh_list")
     assert response["result"]["content"][0]["text"] == "payload"
     assert capsys.readouterr().out == ""
+
+
+def test_fork_after_turn_anchors_on_that_turns_end(monkeypatch, capsys) -> None:
+    """dsh forks on whole turns, so after_turn resolves to that turn's turn/end seq."""
+    import json as _json
+    from dsh_workers_mcp import dshctl
+    sent = []
+    events = [{"event": {"type": "turn/end", "seq": s, "data": {"turn": t}}}
+              for t, s in ((1, 40), (2, 95), (3, 180))]
+
+    def rpc(method, payload=None, base=None):
+        sent.append((method, payload))
+        if method == "session.list":
+            return {"items": [{"sessionId": "session-src"}]}
+        if method == "session.history":
+            return {"events": events, "hasMore": False}
+        if method == "session.fork":
+            return {"sessionId": "session-child"}
+        raise AssertionError(method)
+
+    monkeypatch.setattr(dshctl, "rpc", rpc)
+    args = type("A", (), dict(session="src", after_turn=2, at_seq=None, base=None))()
+    assert dshctl.cmd_fork(args) == 0
+    out = _json.loads(capsys.readouterr().out)
+    assert out == {"sessionId": "session-child", "forkedFrom": "session-src", "atSeq": 95}
+    assert ("session.fork", {"sessionId": "session-src", "atSeq": 95}) in sent

@@ -125,6 +125,7 @@ Read the turn-end reason, not the reply alone (skill, *Turn-end reason*).
 | `completed`, empty or no report | ask for the report: "Report T-00n in the usual shape." The work may be done; do not redo it |
 | `error` | `dsh_status` for the error. Transient (provider, network): re-send "Continue T-00n from where you stopped." Repeated: FRICTION entry, then decide whether to cut the task smaller |
 | `max-tokens` | "Continue; finish T-00n and report." If it recurs, the task is too big: cut it |
+| `error` with `data_inspection_failed` | the provider's input filter rejected the history; every retry fails too. Do not re-send. `dsh_fork after_turn=<last good turn>`, then name, permission, adopt and re-brief the fork, and retire the old session (skill, *A provider can reject a session*) |
 | `interrupted` you did not cause | find out who (`dsh_grep`); do not assume the work was lost or finished |
 
 **Wrong direction mid-turn.** You notice (from `dsh_status` or a question)

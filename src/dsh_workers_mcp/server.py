@@ -266,6 +266,29 @@ def _tools() -> list[dict]:
             },
         },
         {
+            "name": "dsh_fork",
+            "description": (
+                "Fork a worker into a NEW session that keeps its history up to a turn "
+                "boundary, and nothing after it. Use it to restart from a known-good "
+                "point: a session whose later history the provider now rejects "
+                "(data_inspection_failed: every turn fails, so retrying cannot help; "
+                "fork after the last turn that ended normally), or one stuck with a "
+                "broken compaction. after_turn=N keeps turns 1..N. dsh forks on whole "
+                "turns, so at_seq keeps the entire turn containing it. The fork is a "
+                "new, unnamed session with no goal: name it, set its permission, and "
+                "dsh_roster adopt it before dispatching."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": SESSION_ARG,
+                    "after_turn": {"type": "integer", "minimum": 1},
+                    "at_seq": {"type": "integer", "minimum": 0},
+                },
+                "required": ["session"],
+            },
+        },
+        {
             "name": "dsh_goal",
             "description": (
                 "Read or drive a worker's goal. A dsh goal is an AUTONOMOUS LOOP, not "
@@ -512,6 +535,8 @@ DISPATCH = {
     "dsh_answer": lambda a: _capture(dshctl.cmd_answer, Args(
         session=a["session"], rpc_id=a["rpc_id"],
         answers=json.dumps(a["answers"]), answer=None, custom=None)),
+    "dsh_fork": lambda a: _capture(dshctl.cmd_fork, Args(
+        session=a["session"], after_turn=a.get("after_turn"), at_seq=a.get("at_seq"))),
     "dsh_goal": lambda a: _capture(dshctl.cmd_goal, Args(
         session=a["session"], action=a.get("action", "show"),
         objective=a.get("objective"), max_rounds=a.get("max_rounds"),
