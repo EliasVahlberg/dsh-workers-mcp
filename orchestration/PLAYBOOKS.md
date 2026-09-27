@@ -100,7 +100,7 @@ vision/design docs, the code, your own engineering judgment within the
 task's scope. Answer the question asked, give the reason in one line, and
 say if it changes the task. If the answer needs the human (METHOD,
 *Escalate*), pick the option that is safe to proceed with ("keep both
-behind the existing flag; I'm asking Elias") or tell the worker to stop and
+behind the existing flag; I'm asking the human") or tell the worker to stop and
 report, then note the open question on the task. If the answer will matter
 again, `DECISIONS.md` it now, not at the end of the session.
 

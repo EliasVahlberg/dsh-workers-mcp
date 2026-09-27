@@ -242,7 +242,7 @@ a `FRICTION.md` entry shows the same mistake twice.
   in the project pushed, tagged or released, new ones will try. The preset
   rejects it; your brief should say who does it instead.
 - **Mark your own caution as yours.** When you add a restriction the human
-  never set, say so where you write it ("lead's choice; ask Elias to change").
+  never set, say so where you write it ("lead's choice; ask the human to change it").
   Otherwise it hardens into a rule nobody decided.
 - **Unused is not unneeded.** Before proposing to delete a command, file or
   feature, find out what it is for and ask whoever owns it. It may be the only
