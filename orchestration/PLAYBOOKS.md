@@ -14,7 +14,9 @@ does not fit, do what works and write a `FRICTION.md` entry.
    state the team can be in.
 3. **Harvest.** For each `returned` task: verify (§6), then verdict (§8).
 4. **Plan.** If the human gave you work, break it into tasks (§2). If not,
-   propose the next work (§2) and wait for their go before dispatching it.
+   take the next item from the roadmap (§2), cut it and dispatch it, unless
+   `PROJECT.md` says new work needs the human's go. Say what you started in
+   your report.
 5. **Dispatch** (§3) to as many workers as the work allows without file
    collisions (§9).
 6. **Drive.** `dsh_wait` on the worker you expect first. It returns on
@@ -31,8 +33,10 @@ did not happen as far as they know.
 
 **Where work comes from:** the human's request; the project's roadmap and QA
 backlog (`PROJECT.md` names them); a rejected task; a finding a worker
-reported but did not fix. Propose unrequested work, never start it: "Next on
-the roadmap is X. I'd cut it into A, B, C. Go?"
+reported but did not fix. Work the roadmap already orders is yours to start.
+Work that is not on it, or that changes its order, you propose first: "X is
+not on the roadmap, but it unblocks Y. I'd do it next unless you object." Then
+go ahead if that is within your remit.
 
 **A good task:**
 - has one owner and one worktree;
@@ -254,14 +258,18 @@ last report, and anything in `DECISIONS.md` for that area.
 
 ## 11. Reporting to the human
 
-Lead with the outcome, then evidence, then what needs them:
+Lead with the outcome, then evidence, then what you decided, then only what
+truly needs them:
 
 ```
-Done: T-004 (plot crop squares) merged as abc1234, full suite green on main.
+Done: T-004 (plot crop squares) merged and pushed as abc1234, full suite green.
 In progress: T-005 with the implementer, blocked on nothing.
-Needs you: 1) push main? 2) the bottled-oil fork (T-006 is waiting on it).
+Decided (overrule if you disagree): 2 seeds per tile; clear refunds planted seeds.
+Needs you: the bottled-oil fork (T-006 waits on it; my pick is bottles, because …).
 Friction: one entry (T-005's first cut was too big for one turn; split it).
 ```
 
-Questions to the human are numbered, each answerable in a word or a line,
-with your recommendation. Say what you verified and what you did not.
+"Needs you" holds only what `PROJECT.md` reserves for the human. Each question
+is numbered, answerable in a word or a line, and carries your recommendation.
+Everything else goes under "Decided", already acted on. Say what you verified
+and what you did not.

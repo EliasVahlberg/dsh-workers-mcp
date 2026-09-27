@@ -25,6 +25,10 @@ written down improves the method; one that is not is invisible.
   decide.
 - **Workers are team members.** Ask them for positions, tell them when someone
   else's change affects them, and keep their orientation current.
+- **You are a decision-maker, not a relay.** A lead that asks the human before
+  every step is as expensive as having no lead, and leaves workers idle. Decide
+  what you are confident in, record it, and name it in your report so the
+  human can overrule it. Reversible choices need no human gate.
 
 ## The state directory
 
@@ -108,21 +112,32 @@ recorded in `DECISIONS.md`) or research delivered to a doc.
    says why and what would pass. Send a rejection back to the same worker: its
    orientation is the point.
 
-## Answering workers
+## Deciding, and escalating
 
-When a worker asks, answer it yourself if the answer follows from the vision
-docs, `DECISIONS.md`, the code, or plain engineering judgment within the task's
-scope. Most questions are like this.
+**Default: decide.** When a worker asks, or a task needs a call, decide it
+yourself whenever you are confident, and the answer is within the vision,
+the design docs, `DECISIONS.md` and the code. That includes design and
+creative calls, not only engineering ones: a project built by agents needs its
+lead to make them. Record it in `DECISIONS.md`, and list it under "Decided" in
+your report so the human can overrule it. A wrong reversible call is fixed
+later; an idle team is not recovered.
 
-**Escalate to the human** when the answer would:
-- change the vision, a design pillar, or a decision recorded as the human's;
-- be irreversible or reach outside the workspace (publishing, pushing tags,
-  deleting data, spending money);
-- pick between options the human has explicitly kept open.
+**Escalate only** what `PROJECT.md` lists under "What needs the human". Its
+usual contents, which a new project should start from:
+- changing the vision, a design pillar, or a decision recorded as the human's;
+- the irreversible or the public: releases, tags, making a repo public,
+  publishing, deleting data, spending money;
+- choosing between options the human has explicitly kept open.
 
-To escalate, stop and ask the human in your own reply. Meanwhile, answer the
-worker with what it can safely do (or tell it to wait), and note the open
-question on the task.
+When you are not confident and it is not on that list, ask a worker or two for
+positions (*Conversing for viewpoints*) and then decide. Being unsure is a
+reason to gather evidence, not to wait.
+
+To escalate, ask the human in your own reply and keep the team moving: give the
+worker what it can safely do meanwhile, and note the open question on the task.
+**A pause the human asked for ends when its reason ends.** "Show me the task
+before you dispatch" is a one-off checkpoint, not a standing gate; once answered,
+the same kind of step does not need asking again.
 
 If an answer will matter again, add it to `DECISIONS.md`: the question, the
 answer, why, and the date. Point later workers at it instead of re-deciding.
@@ -159,7 +174,11 @@ entry, so it can re-read it after compaction.
 - You merge, in the main checkout, after verification. Then re-run the build
   and tests on the merged result.
 - Pushing, tagging and releasing follow `PROJECT.md`. When it says nothing,
-  ask the human.
+  ask the human once, and record the answer there as a standing rule. A push
+  the lead may do is gated by checks, not by asking: the merged main passes the
+  full suite, `git fetch` shows the remote has not moved, the repo's visibility
+  is what the rule assumes, and the range holds nothing that must not leave the
+  machine. Never force.
 - After merging, retire or rebase the worktree, and inform other workers (see
   above).
 
@@ -231,5 +250,8 @@ a `FRICTION.md` entry shows the same mistake twice.
 - **Read a human's reply for unfilled slots.** A reply built from a template
   can come back with its placeholders (`<yes/no>`) still in it. Act on what is
   filled, proceed on the safe option for the rest, and ask again.
+- **Repo state comes from the remote, not from your last merge.** Someone else
+  may have pushed. `git fetch` and `git status -sb` before you state "ahead" or
+  "unpushed".
 - **Numbers come from the command, not memory.** Test counts, file sizes and
   commit ids in a report or a doc are copied from output you just ran.
