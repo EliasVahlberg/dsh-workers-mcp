@@ -199,7 +199,7 @@ def _tools() -> list[dict]:
                         "description": (
                             "Permission preset applied before anything is dispatched: "
                             "read-only | supervised | autonomous (danger-full-access "
-                            "exists but is for humans to set). See dsh_permission."
+                            "exists but is for the user to set). See dsh_permission."
                         ),
                     },
                 },
@@ -375,7 +375,7 @@ def _tools() -> list[dict]:
                 "sandbox escalations ASK you (they surface in dsh_pending). "
                 "autonomous: same confinement, but everything that would ask is "
                 "REJECTED outright, so it never blocks and needs no monitoring. "
-                "danger-full-access: unconfined — leave to the human. "
+                "danger-full-access: unconfined — leave to the user. "
                 "These are SCOPE controls, not security: the sandbox confines writes "
                 "only, not reads or network, and command-text rules are evadable. "
                 "Refuses to switch a mid-turn worker unless force is set."
@@ -443,7 +443,7 @@ def _tools() -> list[dict]:
             "description": (
                 "Task records (tasks.json in the state dir). 'add' creates a task "
                 "(status open) and returns its id; pass id to claim a specific one "
-                "(e.g. an id the human named), so adds in one batch cannot swap ids. "
+                "(e.g. an id the user named), so adds in one batch cannot swap ids. "
                 "Pass that id as task_id to dsh_task; "
                 "the server then records the dispatch and moves the task to dispatched, "
                 "blocked (a wait found it waiting on you) and returned (its turn ended). "
@@ -546,7 +546,7 @@ DISPATCH = {
 # Presets this server refuses to apply, unless started with --allow-full-access.
 #
 # The orchestrator's worker-facing tools are meant to be auto-approved, so the
-# lead can answer and dispatch without a human clicking through every call.
+# lead can answer and dispatch without the user clicking through every call.
 # That is only safe if the one unconfined preset is out of its reach: enforced
 # here, where a prompt injected into the lead cannot talk its way past it,
 # rather than left as a line in its instructions.
@@ -567,7 +567,7 @@ def check_policy(name: str, arguments: dict) -> None:
     if wanted in FORBIDDEN_PRESETS:
         raise dshctl.RpcError(
             f"preset {wanted!r} is refused by this server (started without "
-            f"--allow-full-access). It is the human's call: ask them to set it.")
+            f"--allow-full-access). It is the user's call: ask them to set it.")
     if name in ("dsh_task", "dsh_ask"):
         head = (arguments.get("prompt") or "").lstrip().lower()
         if head.startswith(_KNOB_COMMANDS):

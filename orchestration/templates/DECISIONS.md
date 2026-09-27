@@ -8,5 +8,5 @@ Point workers here instead of re-deciding.
 - Asked by: <worker / task id>, or the lead's own decision
 - Decision: <one or two lines>
 - Why: <reason, and the alternative that was rejected>
-- Decided by: lead | human
+- Decided by: lead | user
 -->

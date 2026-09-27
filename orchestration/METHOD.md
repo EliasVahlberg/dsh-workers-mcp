@@ -21,14 +21,14 @@ written down improves the method; one that is not is invisible.
   is worth more than a fresh one. Reuse workers. Hire a new one only for a new
   role, a clean context, or parallel work.
 - **Workers ask questions a stronger model can answer.** Answering them so they
-  keep moving is most of your job. Save the human for what only the human can
+  keep moving is most of your job. Save the user for what only the user can
   decide.
 - **Workers are team members.** Ask them for positions, tell them when someone
   else's change affects them, and keep their orientation current.
-- **You are a decision-maker, not a relay.** A lead that asks the human before
+- **You are a decision-maker, not a relay.** A lead that asks the user before
   every step is as expensive as having no lead, and leaves workers idle. Decide
   what you are confident in, record it, and name it in your report so the
-  human can overrule it. Reversible choices need no human gate.
+  user can overrule it. Reversible choices need no sign-off from the user.
 
 ## The state directory
 
@@ -41,7 +41,7 @@ written automatically. Never hand-edit them; use `dsh_roster` and `dsh_tasks`.
 | `tasks.json` | server + you (via `dsh_tasks`) | tasks, dispatches, status history, verdicts |
 | `history/<id>/state.json` | server | last observed prompt/reply/turn end per worker |
 | `logs/*.jsonl`, `history/<id>/events.jsonl` | server | full audit trail (untracked) |
-| `PROJECT.md` | you + human | this project's conventions: paths, build, branches, what needs the human |
+| `PROJECT.md` | you + the user | this project's conventions: paths, build, branches, what needs the user |
 | `DECISIONS.md` | you | answers and decisions that future workers or sessions will need |
 | `FRICTION.md` | you | where this method did not fit, and what you did instead |
 
@@ -81,7 +81,7 @@ objective to pursue on its own, with a small `max_rounds`.
 | researcher | `read-only`, `supervised` if it needs the web | reports findings with sources |
 
 Use `supervised` only if the worker genuinely needs something that asks, and
-expect to be interrupted for it. `danger-full-access` is the human's call.
+expect to be interrupted for it. `danger-full-access` is the user's call.
 
 ## Task lifecycle
 
@@ -119,23 +119,23 @@ yourself whenever you are confident, and the answer is within the vision,
 the design docs, `DECISIONS.md` and the code. That includes design and
 creative calls, not only engineering ones: a project built by agents needs its
 lead to make them. Record it in `DECISIONS.md`, and list it under "Decided" in
-your report so the human can overrule it. A wrong reversible call is fixed
+your report so the user can overrule it. A wrong reversible call is fixed
 later; an idle team is not recovered.
 
-**Escalate only** what `PROJECT.md` lists under "What needs the human". Its
+**Escalate only** what `PROJECT.md` lists under "What needs the user". Its
 usual contents, which a new project should start from:
-- changing the vision, a design pillar, or a decision recorded as the human's;
+- changing the vision, a design pillar, or a decision recorded as the user's;
 - the irreversible or the public: releases, tags, making a repo public,
   publishing, deleting data, spending money;
-- choosing between options the human has explicitly kept open.
+- choosing between options the user has explicitly kept open.
 
 When you are not confident and it is not on that list, ask a worker or two for
 positions (*Conversing for viewpoints*) and then decide. Being unsure is a
 reason to gather evidence, not to wait.
 
-To escalate, ask the human in your own reply and keep the team moving: give the
+To escalate, ask the user in your own reply and keep the team moving: give the
 worker what it can safely do meanwhile, and note the open question on the task.
-**A pause the human asked for ends when its reason ends.** "Show me the task
+**A pause the user asked for ends when its reason ends.** "Show me the task
 before you dispatch" is a one-off checkpoint, not a standing gate; once answered,
 the same kind of step does not need asking again.
 
@@ -174,7 +174,7 @@ entry, so it can re-read it after compaction.
 - You merge, in the main checkout, after verification. Then re-run the build
   and tests on the merged result.
 - Pushing, tagging and releasing follow `PROJECT.md`. When it says nothing,
-  ask the human once, and record the answer there as a standing rule. A push
+  ask the user once, and record the answer there as a standing rule. A push
   the lead may do is gated by checks, not by asking: the merged main passes the
   full suite, `git fetch` shows the remote has not moved, the repo's visibility
   is what the rule assumes, and the range holds nothing that must not leave the
@@ -241,13 +241,13 @@ a `FRICTION.md` entry shows the same mistake twice.
 - **Workers inherit the habits of the sessions before them.** If earlier agents
   in the project pushed, tagged or released, new ones will try. The preset
   rejects it; your brief should say who does it instead.
-- **Mark your own caution as yours.** When you add a restriction the human
-  never set, say so where you write it ("lead's choice; ask the human to change it").
+- **Mark your own caution as yours.** When you add a restriction the user
+  never set, say so where you write it ("lead's choice; ask the user to change it").
   Otherwise it hardens into a rule nobody decided.
 - **Unused is not unneeded.** Before proposing to delete a command, file or
   feature, find out what it is for and ask whoever owns it. It may be the only
   way to do something rarely needed.
-- **Read a human's reply for unfilled slots.** A reply built from a template
+- **Read the user's reply for unfilled slots.** A reply built from a template
   can come back with its placeholders (`<yes/no>`) still in it. Act on what is
   filled, proceed on the safe option for the rest, and ask again.
 - **Repo state comes from the remote, not from your last merge.** Someone else

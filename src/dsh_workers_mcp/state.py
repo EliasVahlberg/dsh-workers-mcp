@@ -407,7 +407,7 @@ class State:
                  acceptance: str | None = None, depends_on: list[str] | None = None,
                  branch: str | None = None, worktree: str | None = None,
                  task_id: str | None = None) -> dict:
-        """Add an open task. `task_id` claims a specific id (e.g. one the human
+        """Add an open task. `task_id` claims a specific id (e.g. one the user
         already named), so adds made in one batch cannot swap ids by arrival order."""
         if not title or not title.strip():
             raise dshctl.RpcError("a task needs a title")

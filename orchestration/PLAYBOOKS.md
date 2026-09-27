@@ -13,25 +13,25 @@ does not fit, do what works and write a `FRICTION.md` entry.
    before you plan anything new. Workers idle on you are the most expensive
    state the team can be in.
 3. **Harvest.** For each `returned` task: verify (§6), then verdict (§8).
-4. **Plan.** If the human gave you work, break it into tasks (§2). If not,
+4. **Plan.** If the user gave you work, break it into tasks (§2). If not,
    take the next item from the roadmap (§2), cut it and dispatch it, unless
-   `PROJECT.md` says new work needs the human's go. Say what you started in
+   `PROJECT.md` says new work needs the user's go. Say what you started in
    your report.
 5. **Dispatch** (§3) to as many workers as the work allows without file
    collisions (§9).
 6. **Drive.** `dsh_wait` on the worker you expect first. It returns on
    `blocked` or turn end; handle it (§4, §5) and wait on the next.
-7. **Close.** Before you end your turn to the human: every running worker is
+7. **Close.** Before you end your turn to the user: every running worker is
    either working on a task you can name or idle with nothing pending; tasks
    carry notes that say where they stand; the workspace repo is checkpointed
-   (METHOD, *Checkpoints*). Then report to the human (§11).
+   (METHOD, *Checkpoints*). Then report to the user (§11).
 
-The human reads only your replies. A worker's result that you did not report
+The user reads only your replies. A worker's result that you did not report
 did not happen as far as they know.
 
 ## 2. Choosing and cutting work
 
-**Where work comes from:** the human's request; the project's roadmap and QA
+**Where work comes from:** the user's request; the project's roadmap and QA
 backlog (`PROJECT.md` names them); a rejected task; a finding a worker
 reported but did not fix. Work the roadmap already orders is yours to start.
 Work that is not on it, or that changes its order, you propose first: "X is
@@ -54,16 +54,16 @@ go ahead if that is within your remit.
 - says what is out of scope, so the worker does not "improve" neighbours.
 
 **Land the design before cutting the task.** If the design a task implements
-exists only in a conversation (a worker's transcript, a chat with the human),
+exists only in a conversation (a worker's transcript, a chat with the user),
 first write it where the team can read it: a ROADMAP paragraph or a
-`DECISIONS.md` entry, and have the human confirm it. Writing it down is what
+`DECISIONS.md` entry, and have the user confirm it. Writing it down is what
 exposes contradictions ("2 per tile" and "5 seeds = 5 tiles" cannot both hold);
 cutting acceptance straight from a transcript inherits them.
 
 **Record-only items are not tasks.** A latent bug or an idea with no work
 planned goes in the roadmap or the QA backlog, not `tasks.json`.
 
-**Ids the human named:** `dsh_tasks add id=T-007` claims it. Otherwise ids go
+**Ids the user named:** `dsh_tasks add id=T-007` claims it. Otherwise ids go
 by arrival order, and adds in one batch can swap.
 
 **Research first when** the task depends on engine behaviour nobody has
@@ -98,9 +98,9 @@ Mechanics:
 **A question** (`dsh_answer`). Answer from, in order: `DECISIONS.md`, the
 vision/design docs, the code, your own engineering judgment within the
 task's scope. Answer the question asked, give the reason in one line, and
-say if it changes the task. If the answer needs the human (METHOD,
+say if it changes the task. If the answer needs the user (METHOD,
 *Escalate*), pick the option that is safe to proceed with ("keep both
-behind the existing flag; I'm asking the human") or tell the worker to stop and
+behind the existing flag; I'm asking the user") or tell the worker to stop and
 report, then note the open question on the task. If the answer will matter
 again, `DECISIONS.md` it now, not at the end of the session.
 
@@ -215,7 +215,7 @@ mode=steer` rather than waiting for the round to end.
 
 **Merge**, when every line is ticked:
 1. The main checkout is clean (`git status --short` empty). If not, it is the
-   human's work in progress: stop and ask.
+   user's work in progress: stop and ask.
 2. `git -C <repo> merge --ff-only wt/<name>`. If it will not fast-forward, the
    branch is behind: ask the worker to rebase onto `main` and re-run its
    checks (it owns its conflicts), then verify the rebased branch again. Do
@@ -256,7 +256,7 @@ its role no longer exists, or it needs a restart (§5). Leave the session in
 dsh; do not delete it. Its successor's brief includes the predecessor's brief,
 last report, and anything in `DECISIONS.md` for that area.
 
-## 11. Reporting to the human
+## 11. Reporting to the user
 
 Lead with the outcome, then evidence, then what you decided, then only what
 truly needs them:
@@ -269,7 +269,7 @@ Needs you: the bottled-oil fork (T-006 waits on it; my pick is bottles, because 
 Friction: one entry (T-005's first cut was too big for one turn; split it).
 ```
 
-"Needs you" holds only what `PROJECT.md` reserves for the human. Each question
+"Needs you" holds only what `PROJECT.md` reserves for the user. Each question
 is numbered, answerable in a word or a line, and carries your recommendation.
 Everything else goes under "Decided", already acted on. Say what you verified
 and what you did not.

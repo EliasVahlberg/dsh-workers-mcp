@@ -108,7 +108,7 @@ keeps a long-lived roster legible.
 Read-only tools are safe to auto-approve. `dsh_task`, `dsh_ask`, `dsh_answer`,
 `dsh_goal`, `dsh_name`, `dsh_create`, `dsh_cancel`, `dsh_approve`, and
 `dsh_permission` change worker state. For an orchestrator that must keep
-workers moving without a human in the loop, auto-approving them is the point,
+workers moving without the user in the loop, auto-approving them is the point,
 and the server makes that bounded: it refuses `danger-full-access` (and
 permission/sandbox/approval slash commands sent as prompts) unless started
 with `--allow-full-access`. So the widest a lead can make a worker is

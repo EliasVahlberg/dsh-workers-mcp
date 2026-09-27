@@ -165,7 +165,7 @@ composed into the running `dsh`. Without it only the stock presets exist.
 | `autonomous` | web access, `git push` and sandbox escalations **rejected outright**. It never blocks, so you need not watch it | hands-off implementation in a worktree |
 | `supervised` | the same actions **ask you**: they appear in `dsh_pending`, and `dsh_wait` returns early | work that may legitimately need the web |
 | `read-only` | writes denied | reviewers and verifiers |
-| `danger-full-access` | unconfined | the server refuses it unless started with `--allow-full-access`; it is the human's call |
+| `danger-full-access` | unconfined | the server refuses it unless started with `--allow-full-access`; it is the user's call |
 
 **These are scope controls, not security.** The sandbox confines file *writes*.
 It does not stop reads of secrets or network access, and `web_*`, MCP and model
