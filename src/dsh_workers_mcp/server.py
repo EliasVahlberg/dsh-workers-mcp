@@ -419,11 +419,15 @@ def _tools() -> list[dict]:
             "name": "dsh_tasks",
             "description": (
                 "Task records (tasks.json in the state dir). 'add' creates a task "
-                "(status open) and returns its id. Pass that id as task_id to dsh_task; "
+                "(status open) and returns its id; pass id to claim a specific one "
+                "(e.g. an id the human named), so adds in one batch cannot swap ids. "
+                "Pass that id as task_id to dsh_task; "
                 "the server then records the dispatch and moves the task to dispatched, "
                 "blocked (a wait found it waiting on you) and returned (its turn ended). "
                 "Those are facts. Judgment is yours via 'update': in-review, merged, "
-                "rejected, abandoned, or back to open, plus notes, owner, branch, "
+                "rejected (re-dispatching it reopens it), abandoned, done (closed "
+                "without a merge: a decision taken, research delivered), or back to "
+                "open, plus notes, owner, branch, "
                 "worktree, acceptance, depends_on. 'list' hides closed tasks unless "
                 "include_closed or a status filter is given."
             ),

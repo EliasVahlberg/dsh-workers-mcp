@@ -49,6 +49,19 @@ the roadmap is X. I'd cut it into A, B, C. Go?"
   right thing: read the assertions behind every invariant line (§6);
 - says what is out of scope, so the worker does not "improve" neighbours.
 
+**Land the design before cutting the task.** If the design a task implements
+exists only in a conversation (a worker's transcript, a chat with the human),
+first write it where the team can read it: a ROADMAP paragraph or a
+`DECISIONS.md` entry, and have the human confirm it. Writing it down is what
+exposes contradictions ("2 per tile" and "5 seeds = 5 tiles" cannot both hold);
+cutting acceptance straight from a transcript inherits them.
+
+**Record-only items are not tasks.** A latent bug or an idea with no work
+planned goes in the roadmap or the QA backlog, not `tasks.json`.
+
+**Ids the human named:** `dsh_tasks add id=T-007` claims it. Otherwise ids go
+by arrival order, and adds in one batch can swap.
+
 **Research first when** the task depends on engine behaviour nobody has
 verified, or on a choice between designs. Dispatch a read-only researcher
 with the question, then cut the implementation from its answer. Research that

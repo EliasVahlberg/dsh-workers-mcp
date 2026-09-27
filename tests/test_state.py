@@ -329,7 +329,7 @@ def test_rejected_task_goes_back_to_its_worker_by_dispatching_it(dsh, state) -> 
 
 def test_task_updates_are_validated(dsh, state) -> None:
     tid = _task()
-    assert call("dsh_tasks", {"action": "update", "id": tid, "status": "done"})["isError"]
+    assert call("dsh_tasks", {"action": "update", "id": tid, "status": "finished"})["isError"]
     assert call("dsh_tasks", {"action": "add", "title": "x", "depends_on": ["T-404"]})["isError"]
     assert call("dsh_tasks", {"action": "add", "title": "  "})["isError"]
     updated = json.loads(text(call("dsh_tasks", {"action": "update", "id": tid,
@@ -361,3 +361,21 @@ def test_state_files_are_valid_json_after_writes(dsh, state) -> None:
     for path in (state.roster_path, state.tasks_path):
         json.loads(Path(path).read_text())
     assert not list(state.root.glob("*.tmp")) and not list(state.root.glob(".*.tmp"))
+
+
+def test_add_can_claim_a_named_id_and_done_closes_a_decision(dsh, state) -> None:
+    """Friction 27 Sep: batched adds swapped T-004/T-005; a decision task had no fitting status."""
+    named = json.loads(text(call("dsh_tasks", {"action": "add", "id": "T-005",
+                                               "title": "arbor 1x1"})))
+    assert named["id"] == "T-005"
+    auto = json.loads(text(call("dsh_tasks", {"action": "add", "title": "next"})))
+    assert auto["id"] == "T-006"  # numbering continues past the claimed id
+    assert call("dsh_tasks", {"action": "add", "id": "T-005", "title": "dup"})["isError"]
+    assert call("dsh_tasks", {"action": "add", "id": "7", "title": "bad"})["isError"]
+
+    call("dsh_tasks", {"action": "update", "id": "T-005", "status": "done",
+                       "note": "decided: 1x1"})
+    assert json.loads(text(call("dsh_tasks", {})))["tasks"][0]["id"] == "T-006"  # done is closed
+    dsh.add("session-aaaa1111")
+    result = call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": "T-005"})
+    assert result["isError"] is True and "reopen" in text(result)

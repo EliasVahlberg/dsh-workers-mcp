@@ -85,8 +85,12 @@ expect to be interrupted for it. `danger-full-access` is the human's call.
 open ──dsh_task(task_id)──▶ dispatched ──▶ blocked ──(you answer)──▶ dispatched
                                 │                                        │
                                 └──────────── turn ends ────────▶ returned
-returned ──you──▶ in-review ──you──▶ merged | rejected (→ open again, or abandoned)
+returned ──you──▶ in-review ──you──▶ merged | done | rejected | abandoned
+rejected ──dsh_task(task_id)──▶ dispatched      (the server logs the reopen)
 ```
+
+`done` closes a task that produces no merge: a decision (positions collected,
+recorded in `DECISIONS.md`) or research delivered to a doc.
 
 1. **Define it.** `dsh_tasks action=add` with a title and **checkable
    acceptance** ("`make test` passes and the new scenario covers X"). Avoid

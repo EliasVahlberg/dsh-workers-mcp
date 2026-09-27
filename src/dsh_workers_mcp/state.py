@@ -31,6 +31,7 @@ from __future__ import annotations
 import contextlib
 import datetime as _dt
 import json
+import re
 import os
 import tempfile
 from pathlib import Path
@@ -56,9 +57,10 @@ TASK_STATUSES = (
     "merged",      # accepted and integrated
     "rejected",    # judged and not accepted
     "abandoned",   # dropped
+    "done",        # finished without a merge: a decision taken, research delivered
 )
 # A task in a closed state is not touched by observations any more.
-CLOSED = {"merged", "rejected", "abandoned"}
+CLOSED = {"merged", "rejected", "abandoned", "done"}
 
 LOG_RESULT_CHARS = 20_000   # per logged call; the full text is in dsh anyway
 PREVIEW_CHARS = 2_000       # prompt/reply text kept in state.json
@@ -403,16 +405,24 @@ class State:
 
     def add_task(self, title: str, owner: str | None = None,
                  acceptance: str | None = None, depends_on: list[str] | None = None,
-                 branch: str | None = None, worktree: str | None = None) -> dict:
+                 branch: str | None = None, worktree: str | None = None,
+                 task_id: str | None = None) -> dict:
+        """Add an open task. `task_id` claims a specific id (e.g. one the human
+        already named), so adds made in one batch cannot swap ids by arrival order."""
         if not title or not title.strip():
             raise dshctl.RpcError("a task needs a title")
+        if task_id is not None and not re.fullmatch(r"T-\d{3,}", task_id):
+            raise dshctl.RpcError(f"task id {task_id!r} must look like T-007")
         with self._lock("tasks"):
             data = self.tasks()
             for dep in depends_on or []:
                 if dep not in data["tasks"]:
                     raise dshctl.RpcError(f"dependsOn: no task {dep!r}")
-            task_id = f"T-{data['nextId']:03d}"
-            data["nextId"] += 1
+            if task_id is None:
+                task_id = f"T-{data['nextId']:03d}"
+            elif task_id in data["tasks"]:
+                raise dshctl.RpcError(f"{task_id} already exists")
+            data["nextId"] = max(data["nextId"], int(task_id[2:]) + 1)
             stamp = now_iso()
             data["tasks"][task_id] = {
                 "id": task_id, "title": title.strip(), "status": "open",
@@ -693,7 +703,8 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
                               acceptance=arguments.get("acceptance"),
                               depends_on=arguments.get("depends_on"),
                               branch=arguments.get("branch"),
-                              worktree=arguments.get("worktree"))
+                              worktree=arguments.get("worktree"),
+                              task_id=arguments.get("id"))
     task_id = arguments.get("id")
     if not task_id:
         raise dshctl.RpcError(f"action {action!r} needs an id")
