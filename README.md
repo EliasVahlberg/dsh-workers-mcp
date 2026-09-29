@@ -85,7 +85,7 @@ kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-worke
 | `dsh_status` | deep insight into one worker, incl. `lastTurnEnd` | no |
 | `dsh_grep` | regex over one worker's own history, paged backwards | no |
 | `dsh_search` | full-text across every session, for attribution | no |
-| `dsh_models` | model, and reasoning-effort levels available | no |
+| `dsh_models` | model and reasoning-effort levels; set a worker's effort (`reasoning_effort=`) | no |
 | `dsh_pending` | **what a worker is blocked on** | no |
 | `dsh_answer` | **unblock it** (a question) | no |
 | `dsh_approve` | **unblock it** (a tool approval), after reading the real arguments | no |
@@ -198,7 +198,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-143 tests, no live server needed. They cover the places where being wrong is
+145 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

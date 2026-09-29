@@ -170,11 +170,21 @@ def _tools() -> list[dict]:
             "name": "dsh_models",
             "description": (
                 "Model catalog and current selection for a worker, including available "
-                "reasoning-effort levels. Use to confirm which model a worker runs on."
+                "reasoning-effort levels. With reasoning_effort (and optionally "
+                "provider/model) it CHANGES them for that session only, while it is "
+                "idle, and puts dsh's global default back. Effort is a cost knob: a "
+                "well-specified task rarely needs 'high'."
             ),
             "inputSchema": {
                 "type": "object",
-                "properties": {"session": SESSION_ARG},
+                "properties": {
+                    "session": SESSION_ARG,
+                    "reasoning_effort": {"type": "string",
+                                         "description": "e.g. off | low | high | max; "
+                                         "see the catalog for the model's levels"},
+                    "provider": {"type": "string"},
+                    "model": {"type": "string"},
+                },
                 "required": ["session"],
             },
         },
@@ -194,6 +204,7 @@ def _tools() -> list[dict]:
                     "preset": {"type": "string"},
                     "provider": {"type": "string"},
                     "model": {"type": "string"},
+                    "reasoning_effort": {"type": "string"},
                     "permission": {
                         "type": "string",
                         "description": (
@@ -517,11 +528,13 @@ DISPATCH = {
         chars=a.get("reply_chars", 8000))),
     "dsh_wait": lambda a: _capture(dshctl.cmd_wait, Args(
         session=a["session"], after=None, timeout=a.get("timeout", 1800), poll=5.0)),
-    "dsh_models": lambda a: _capture(dshctl.cmd_models, Args(session=a["session"])),
+    "dsh_models": lambda a: _capture(dshctl.cmd_models, Args(
+        session=a["session"], reasoning_effort=a.get("reasoning_effort"),
+        provider=a.get("provider"), model=a.get("model"))),
     "dsh_create": lambda a: _capture(dshctl.cmd_create, Args(
         cwd=a.get("cwd"), preset=a.get("preset"), session_id=None,
         provider=a.get("provider"), model=a.get("model"),
-        permission=a.get("permission"))),
+        permission=a.get("permission"), reasoning_effort=a.get("reasoning_effort"))),
     "dsh_permission": lambda a: _capture(dshctl.cmd_permission, Args(
         session=a["session"], preset=a.get("preset"), force=a.get("force", False))),
     "dsh_approve": lambda a: _capture(dshctl.cmd_approve, Args(

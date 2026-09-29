@@ -253,5 +253,8 @@ a `FRICTION.md` entry shows the same mistake twice.
 - **Repo state comes from the remote, not from your last merge.** Someone else
   may have pushed. `git fetch` and `git status -sb` before you state "ahead" or
   "unpushed".
+- **A "cancelled" tool result is unknown, not undone.** A call the client shows
+  as cancelled may have run anyway. Check the state it would have changed
+  before retrying, the same way a dsh cancel receipt is not evidence.
 - **Numbers come from the command, not memory.** Test counts, file sizes and
   commit ids in a report or a doc are copied from output you just ran.

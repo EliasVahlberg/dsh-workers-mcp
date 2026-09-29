@@ -14,6 +14,13 @@ Conventions:
   the lead merges and pushes.
 - Build/test with <commands>. <Environment needed, e.g. GRADLE_USER_HOME>.
 - Do not edit outside your worktree unless a task says so.
+- Run each check once and read its saved output (<where it is kept, e.g.
+  build/logs/>). Never rerun a suite only to see its output again; rerun it
+  when the code changed or to chase a flake, and say which.
+- Do what the task asks, at the size it states. Extra tools, tests or docs
+  you think would help go in your report as proposals, not in the diff.
+- Long text never goes inside a shell command: write files with the write
+  tool. (See the workspace instructions for why.)
 - Your permission preset is <preset>: <what that means for you, e.g. web access
   and pushes are rejected, not asked>.
 

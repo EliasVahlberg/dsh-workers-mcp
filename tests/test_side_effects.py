@@ -30,11 +30,18 @@ def dsh_home(tmp_path, monkeypatch):
 
 def fake_rpc(home, rewrite):
     calls = []
+    current = {"provider": "deepseek-official", "model": "deepseek-flash"}
 
-    def rpc(method, payload, base=None):
+    def rpc(method, payload=None, base=None):
         calls.append(method)
         if method == "session.create":
             return {"sessionId": "session-new"}
+        if method == "session.models":
+            return {"current": dict(current)}
+        if method == "session.selectModel":
+            current.update({k: payload[k] for k in ("provider", "model")})
+            if "reasoningEffort" in payload:
+                current["reasoningEffort"] = payload["reasoningEffort"]
         if method == "session.selectModel" and rewrite:
             # What dsh does: persist the pin as the global default.
             text = (home / "settings.yaml").read_text()
@@ -50,7 +57,8 @@ def create(monkeypatch, capsys, rpc) -> dict:
     import json
     monkeypatch.setattr(dshctl, "rpc", rpc)
     args = type("A", (), dict(cwd="/w", preset=None, session_id=None, provider="qwen-cloud",
-                              model="qwen3.8-flash", permission=None, base=None))()
+                              model="qwen3.8-flash", permission=None, base=None,
+                              reasoning_effort=None))()
     assert dshctl.cmd_create(args) == 0
     return json.loads(capsys.readouterr().out)
 
@@ -106,3 +114,29 @@ def test_same_model_pin_names_the_reasoning_effort_dsh_added(dsh_home) -> None:
     wrote = dshctl.restore_default_model(before)
     assert wrote == "deepseek-official/deepseek-flash (reasoningEffort high)"
     assert (dsh_home / "settings.yaml").read_text() == before
+
+
+def test_effort_only_change_keeps_the_model_and_the_default(dsh_home, monkeypatch, capsys) -> None:
+    """Friction 29 Sep: an over-thorough implementer on 'high'; effort must be settable per session."""
+    import json
+    rpc, calls = fake_rpc(dsh_home, rewrite=False)
+    monkeypatch.setattr(dshctl, "rpc", rpc)
+    monkeypatch.setattr(dshctl, "find_session",
+                        lambda s, b=None: {"sessionId": "session-w", "running": False})
+    args = type("A", (), dict(session="w", reasoning_effort="low", provider=None, model=None,
+                              base=None))()
+    assert dshctl.cmd_models(args) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["selectedModel"] == "deepseek-official/deepseek-flash"
+    assert out["reasoningEffort"] == "low" and "warning" not in out
+    assert (dsh_home / "settings.yaml").read_text() == SETTINGS
+
+
+def test_effort_change_refused_mid_turn(monkeypatch) -> None:
+    monkeypatch.setattr(dshctl, "find_session",
+                        lambda s, b=None: {"sessionId": "session-w", "running": True})
+    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+    args = type("A", (), dict(session="w", reasoning_effort="low", provider=None, model=None,
+                              base=None))()
+    with pytest.raises(dshctl.RpcError, match="mid-turn"):
+        dshctl.cmd_models(args)

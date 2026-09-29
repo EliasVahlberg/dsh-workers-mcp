@@ -28,7 +28,7 @@ python3 tools/dshctl/dshctl.py ask <session> "question"
 | Deep insight into one worker | `dsh_status` | no |
 | Search one worker's own history | `dsh_grep` | no |
 | Find which worker discussed X | `dsh_search` | no |
-| Which model a worker runs on | `dsh_models` | no |
+| Which model a worker runs on; change its reasoning effort | `dsh_models` (`reasoning_effort=` sets it, idle only) | no |
 | Delegate real work | `dsh_task` | **no** — returns immediately |
 | Quick question / design opinion | `dsh_ask` | yes, until turn end |
 | Wait for a running worker | `dsh_wait` | yes — returns early if it blocks |

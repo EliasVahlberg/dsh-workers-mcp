@@ -1020,6 +1020,43 @@ def restore_default_model(before: str) -> str | None:
     return describe_default(new)
 
 
+def select_model(session_id: str, base: str, provider: str | None = None,
+                 model: str | None = None, effort: str | None = None) -> dict:
+    """
+    Pin a session's model and/or reasoning effort, then undo dsh's side effect.
+
+    `session.selectModel` needs provider and model, so an effort-only change
+    re-sends the session's current ones. dsh saves every selection as the
+    global default (see restore_default_model); this puts the default back.
+    """
+    if not (provider and model):
+        current = rpc("session.models", {"sessionId": session_id}, base=base).get("current") or {}
+        provider, model = provider or current.get("provider"), model or current.get("model")
+        if not (provider and model):
+            raise RpcError("cannot tell this session's current model; pass provider and model")
+    payload = {"sessionId": session_id, "provider": provider, "model": model}
+    if effort:
+        payload["reasoningEffort"] = effort
+    try:
+        before = settings_path().read_text()
+    except OSError:
+        before = None
+    rpc("session.selectModel", payload, base=base)
+    selected = rpc("session.models", {"sessionId": session_id}, base=base).get("current") or {}
+    out = {"selectedModel": f"{selected.get('provider')}/{selected.get('model')}",
+           "reasoningEffort": selected.get("reasoningEffort")}
+    if effort and selected.get("reasoningEffort") != effort:
+        out["warning"] = f"asked for reasoning effort {effort!r}, session reports {out['reasoningEffort']!r}"
+    if before is None:
+        out["defaultModel"] = f"not checked: cannot read {settings_path()}"
+    else:
+        wrote = restore_default_model(before)
+        kept = describe_default(default_model_lines(before))
+        out["defaultModel"] = (f"unchanged: {kept}" if wrote is None else
+                               f"restored to {kept} (dsh had saved the pin as the default: {wrote})")
+    return out
+
+
 def cmd_create(args) -> int:
     payload: dict = {}
     if args.cwd:
@@ -1033,25 +1070,10 @@ def cmd_create(args) -> int:
                        "(every field is optional server-side, so an empty "
                        "payload silently creates a blank session)")
     value = rpc("session.create", payload, base=args.base)
-    if args.provider and args.model:
-        try:
-            before = settings_path().read_text()
-        except OSError:
-            before = None
-        rpc("session.selectModel", {
-            "sessionId": value["sessionId"],
-            "provider": args.provider,
-            "model": args.model,
-        }, base=args.base)
-        value["selectedModel"] = f"{args.provider}/{args.model}"
-        if before is None:
-            value["defaultModel"] = f"not checked: cannot read {settings_path()}"
-        else:
-            wrote = restore_default_model(before)
-            kept = describe_default(default_model_lines(before))
-            value["defaultModel"] = (f"unchanged: {kept}" if wrote is None else
-                                     f"restored to {kept} (dsh had saved the pin as "
-                                     f"the default: {wrote})")
+    effort = getattr(args, "reasoning_effort", None)
+    if (args.provider and args.model) or effort:
+        value.update(select_model(value["sessionId"], args.base, args.provider,
+                                  args.model, effort))
     if args.permission:
         # Applied before the first prompt, so no call ever runs under the default.
         value["permission"] = set_permission(value["sessionId"], args.permission, args.base)
@@ -1097,6 +1119,15 @@ def cmd_fork(args) -> int:
 
 def cmd_models(args) -> int:
     summary = find_session(args.session, args.base)
+    effort = getattr(args, "reasoning_effort", None)
+    if effort or getattr(args, "model", None):
+        if summary.get("running"):
+            raise RpcError("the worker is mid-turn; change its model or effort when it is idle")
+        print(json.dumps({"sessionId": summary["sessionId"],
+                          **select_model(summary["sessionId"], args.base,
+                                         getattr(args, "provider", None),
+                                         getattr(args, "model", None), effort)}, indent=2))
+        return 0
     value = rpc("session.models", {"sessionId": summary["sessionId"]}, base=args.base)
     catalog = []
     for group in value.get("groups", []):
@@ -1297,6 +1328,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--permission",
                    help="permission preset to apply before anything is dispatched "
                         "(e.g. supervised, autonomous, read-only)")
+    p.add_argument("--reasoning-effort", dest="reasoning_effort")
     p.set_defaults(func=cmd_create)
 
     p = subparsers.add_parser("fork", help="fork a session at a turn boundary")
@@ -1307,6 +1339,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = subparsers.add_parser("models", help="model catalog for a session")
     p.add_argument("session")
+    p.add_argument("--provider")
+    p.add_argument("--model")
+    p.add_argument("--reasoning-effort", dest="reasoning_effort")
     p.set_defaults(func=cmd_models)
 
     p = subparsers.add_parser("cancel", help="cancel the running turn")

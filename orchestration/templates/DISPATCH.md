@@ -16,6 +16,10 @@ Acceptance (the lead checks each line itself):
   component, asserted before and after each operation">
 - <scope line, e.g. only files under src/…/plot/ change>
 
+Expected size: <e.g. 2 files, under ~150 lines>. If it is heading past twice
+that, stop and report why before going on. Ideas beyond the task go in the
+report, not in the diff.
+
 Out of scope: <neighbouring things it must not fix or refactor; say "report
 it" instead>.
 

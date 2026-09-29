@@ -51,7 +51,18 @@ go ahead if that is within your remit.
   level-wide count, per component, before and after each operation" could not
   have been. A green suite says the tests pass, not that they measure the
   right thing: read the assertions behind every invariant line (§6);
+- is **sized to the change.** A retune or a small fix needs the change, the
+  existing suite green, and a doc line. New test classes or harnesses only
+  where the task introduces an invariant the suite cannot already see. Asking
+  for more is how a constants change comes back as 13 files and 750 lines;
+- states the **expected size** (files, rough lines), so the worker can tell
+  when it is drifting;
 - says what is out of scope, so the worker does not "improve" neighbours.
+
+**Write numeric decisions as a formula plus one worked number**, and the
+invariant it keeps ("0.375 compost per carp, before and after"). Prose like
+"scales by the same factor" has several readings, and a worker that finds two
+of them contradictory stops, rightly, and costs a round.
 
 **Land the design before cutting the task.** If the design a task implements
 exists only in a conversation (a worker's transcript, a chat with the user),
@@ -90,6 +101,12 @@ Mechanics:
   deliberately interrupting (§5).
 - One task per dispatch. A second task queued behind the first loses the
   first's report in the noise; dispatch it after the verdict.
+- **Reasoning effort is a cost knob.** Where the model has levels
+  (`dsh_models`), a well-specified task (a retune, a mechanical change) may not
+  need the highest; debugging and design do. Set it per worker with
+  `dsh_models session=… reasoning_effort=…` while it is idle. Its effect on
+  quality is not measured yet: if you lower it, compare the next few results
+  and record what you saw in `FRICTION.md`.
 
 ## 4. Waiting and unblocking
 
@@ -166,7 +183,13 @@ A report is a claim. Before any verdict:
 5. **Look for what the report did not say:** tests weakened or deleted,
    skipped/xfailed tests added, TODOs, debug output, changed tolerances,
    commented-out code.
-6. `dsh_tasks action=update status=in-review` with a one-line note while you
+6. **Check how it worked, not only what it produced.** `dsh_grep` the worker's
+   history for the habits that can kill a session or waste a turn: long text
+   typed into bash (`<<'EOF'`, `<<EOF`) and byte dumps (`od -c`, `cat -A`),
+   which can poison its history for the provider's input filter (skill), and
+   the same suite rerun back to back only to re-read its output. Correct it in
+   the verdict, plainly; it will not show up in the diff.
+7. `dsh_tasks action=update status=in-review` with a one-line note while you
    do it, so an interrupted session knows where it was.
 
 If verifying would cost you many reads, dispatch a reviewer (§7) and verify
@@ -209,7 +232,9 @@ Tell both workers the decision (§9) so neither keeps arguing it in code.
 **Reject** with: what failed (the acceptance line, the evidence), what would
 pass, and whether to amend or add commits. Same worker, same worktree.
 `dsh_tasks update status=rejected note=…`, then re-dispatch with the same
-`task_id`; the server logs the reopen itself. If the worker is still mid-rework
+`task_id`; the server logs the reopen itself. **Two calls, in that order, never
+in one parallel batch:** batched, the dispatch can land first, and the record
+then says a task being reworked is rejected. If the worker is still mid-rework
 when new findings arrive (a late review), fold them in with `dsh_task
 mode=steer` rather than waiting for the round to end.
 
