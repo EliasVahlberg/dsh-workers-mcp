@@ -54,7 +54,9 @@ written automatically. Never hand-edit them; use `dsh_roster` and `dsh_tasks`.
 4. `dsh_list`: resolve any **drift** it reports before relying on the roster.
 
 Do not reconstruct state from memory or from worker transcripts when the files
-have it.
+have it. The same holds mid-session: after a compaction, a restart, or a long
+wait on a worker, sweep again (steps 1, 2 and 4) before acting. The records
+are the read; what you remember of them is not.
 
 ## Hiring a worker
 

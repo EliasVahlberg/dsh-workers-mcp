@@ -8,7 +8,9 @@ does not fit, do what works and write a `FRICTION.md` entry.
 ## 1. A lead session, start to end
 
 1. **Orient** (METHOD, *Start of every lead session*): brief, `dsh_pending`,
-   `dsh_tasks`, `dsh_list` drift.
+   `dsh_tasks`, `dsh_list` drift. Sweep the same way whenever you come back to
+   the work (a compaction, a long wait): every `returned` task, every idle
+   worker with no task, and every pending item gets an action or a reason.
 2. **Unblock first.** Anything in `dsh_pending` gets an answer or a verdict
    before you plan anything new. Workers idle on you are the most expensive
    state the team can be in.

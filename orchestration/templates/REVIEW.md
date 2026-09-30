@@ -14,7 +14,7 @@ depends on. You are read-only: do not edit, and do not try to
 build or test (the sandbox refuses the writes a build makes). Reason from the
 code; say where a claim would need a run to confirm.
 
-Work in this order, and report what you have when you reach about 40 tool
+Work in this order, and report what you have when you reach about 40 tool (80 for a batch)
 calls, even if unfinished (say what you did not get to):
 - first, the acceptance lines that state invariants (conservation, save/load,
   concurrency, anything "never"/"always"): does each test actually measure
