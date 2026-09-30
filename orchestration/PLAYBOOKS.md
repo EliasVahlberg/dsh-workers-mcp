@@ -12,7 +12,8 @@ does not fit, do what works and write a `FRICTION.md` entry.
 2. **Unblock first.** Anything in `dsh_pending` gets an answer or a verdict
    before you plan anything new. Workers idle on you are the most expensive
    state the team can be in.
-3. **Harvest.** For each `returned` task: verify (§6), then verdict (§8).
+3. **Harvest.** For each `returned` task: verify (§6), then verdict (§8). If
+   a batch is due, dispatch its review (§7).
 4. **Plan.** If the user gave you work, break it into tasks (§2). If not,
    take the next item from the roadmap (§2), cut it and dispatch it, unless
    `PROJECT.md` says new work needs the user's go. Say what you started in
@@ -203,8 +204,9 @@ A report is a claim. Before any verdict:
 
 1. **Scope.** `git -C <worktree> diff --stat main...` lists only files the task
    could touch. A surprise file is a question for the worker, not a nit.
-2. **Read the diff.** All of it for small tasks; for large ones, the parts
-   behind each acceptance line and anything touching shared code.
+2. **Read the diff** behind each acceptance line, and anything touching
+   shared code. The full read of everything merged is the batch review's
+   (§7).
 3. **Run the checks yourself**, in the worktree, with the commands in
    `PROJECT.md`. Never accept "tests pass" from the report.
 4. **Tick each acceptance line** with the evidence (a test name, a command's
@@ -222,21 +224,40 @@ A report is a claim. Before any verdict:
 7. `dsh_tasks action=update status=in-review` with a one-line note while you
    do it, so an interrupted session knows where it was.
 
-If verifying would cost you many reads, dispatch a reviewer (§7) and verify
-its findings instead.
+This is the check before a merge. It is not the review: a task that passes
+it merges, and the reviewer sees it later with its batch (§7).
 
 ## 7. Reviews and positions
 
-**Reviewer on a finished task.** `templates/REVIEW.md`. Dispatch it in
-parallel with your own verification, never instead of it, and do not hold the
-implementer idle waiting for it: a review can take 30+ minutes. If your own
-check finds a blocking defect first, reject on that and fold the review's
-findings into the rework when they land (§8). A `read-only` reviewer
+**Review in batches, not per task.** Merge each task on your own check (§6),
+then review what was merged together: at the end of a milestone phase or
+after about five merged tasks, whichever comes first, and always before a
+release. Use `templates/REVIEW.md` with the range (`<start>..main`) and every
+task's acceptance. A verdict per task is a stop per task; a batch keeps the
+team building while the reviewer reads.
+
+- **Merged is not finished.** Findings become fix tasks. The merges stand,
+  unless a finding is serious enough to revert (§8).
+- **Review one task before its merge** only when it is P3 (§2). Dispatch that
+  review in parallel with your own check, never instead of it, and do not hold
+  the implementer idle waiting for it: a review can take 30+ minutes. If your
+  check finds a blocking defect first, reject on that and fold the review's
+  findings into the rework when they land (§8).
+- **Drift is a finding.** Ask whether the merged whole still matches what the
+  milestone asked for, or whether reasonable local steps added up to
+  something larger. It ranks with a logic defect.
+- **Label each miss by cause.** A *context gap*: the dispatch or the docs
+  lacked what the worker needed, so the fix goes into the spec, the brief or
+  `PROJECT.md`. A *judgment gap*: the context was there and the call was
+  wrong, so the fix is a check (a test, a §6 step). Note the count in the
+  batch's `FRICTION.md` entry; it tells you which to improve.
+
+A `read-only` reviewer
 cannot build or test: its sandbox refuses every write, and builds write. So it
 reads and reasons; the checks are yours (§6). If a review needs checks run, use
 a verifier on `autonomous` in its own worktree of the branch, told not to edit.
-Give the reviewer the task's
-acceptance and the branch, not the implementer's report: it should judge the
+Give the reviewer the tasks'
+acceptance and the range, not the implementers' reports: it should judge the
 work, not the story about the work. Then:
 - every finding it ranks as blocking, check yourself before sending it back;
 - disagreement between reviewer and implementer is signal. Ask each to answer
