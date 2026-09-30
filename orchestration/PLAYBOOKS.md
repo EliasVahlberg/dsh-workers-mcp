@@ -19,8 +19,11 @@ does not fit, do what works and write a `FRICTION.md` entry.
    your report.
 5. **Dispatch** (§3) to as many workers as the work allows without file
    collisions (§9).
-6. **Drive.** `dsh_wait` on the worker you expect first. It returns on
-   `blocked` or turn end; handle it (§4, §5) and wait on the next.
+6. **Drive.** With one worker running, `dsh_wait` on it. With several,
+   `dsh_wait sessions=[…all of them]`: it returns on the first to end a turn
+   or block, and names it. Guessing which finishes first and waiting on that
+   one leaves the other idle for up to the whole timeout. Handle what it
+   returns (§4, §5), and wait again on whoever is still running.
 7. **Close.** Before you end your turn to the user: every running worker is
    either working on a task you can name or idle with nothing pending; tasks
    carry notes that say where they stand; the workspace repo is checkpointed
@@ -148,6 +151,7 @@ Read the turn-end reason, not the reply alone (skill, *Turn-end reason*).
 | `max-tokens` | "Continue; finish T-00n and report." If it recurs, the task is too big: cut it |
 | `error` with `data_inspection_failed` | the provider's input filter rejected the history; every retry fails too. Do not re-send. `dsh_fork after_turn=<last good turn>`, then name, permission, adopt and re-brief the fork, and retire the old session (skill, *A provider can reject a session*) |
 | `interrupted` you did not cause | find out who (`dsh_grep`); do not assume the work was lost or finished |
+| `error` with a billing or quota failure (e.g. `QUOTA`, HTTP 402, "Insufficient Balance") | every request fails until the account changes, and paying is the user's call. Do not retry. Record each affected worktree's state on its task, set the tasks `blocked` with the reason, checkpoint, keep going with workers on other providers, and put it under "Needs you" |
 
 **Wrong direction mid-turn.** You notice (from `dsh_status` or a question)
 that it is solving the wrong problem or editing out of scope:
@@ -188,7 +192,8 @@ A report is a claim. Before any verdict:
    typed into bash (`<<'EOF'`, `<<EOF`) and byte dumps (`od -c`, `cat -A`),
    which can poison its history for the provider's input filter (skill), and
    the same suite rerun back to back only to re-read its output. Correct it in
-   the verdict, plainly; it will not show up in the diff.
+   the verdict, plainly; it will not show up in the diff. The same rules hold
+   for your own commands: a worker reading the log learns from yours.
 7. `dsh_tasks action=update status=in-review` with a one-line note while you
    do it, so an interrupted session knows where it was.
 
@@ -248,7 +253,10 @@ mode=steer` rather than waiting for the round to end.
    say so in the task note.
 3. Re-run the full checks on merged `main` (`PROJECT.md`, "before every
    merge"). A merged main that fails is your bug now: revert the merge or fix
-   forward immediately, and FRICTION it.
+   forward immediately, and FRICTION it. One exception: if the merge is local
+   and unpushed, it may stay while a fix is chased, provided nothing is pushed
+   from it, no branch is cut from it, and the task note says so. Reverting a
+   local fast-forward costs more than it protects.
 4. Remove the worktree and the branch. `dsh_tasks update status=merged` with
    the commit.
 5. Inform affected workers (§9). Push only as `PROJECT.md` allows.

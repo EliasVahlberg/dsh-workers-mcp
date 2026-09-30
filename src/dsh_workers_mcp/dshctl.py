@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import contextlib
 import json
 import os
 import re
@@ -921,7 +922,16 @@ def cmd_wait(args) -> int:
     end and return instantly, which reads as success while the worker is still
     mid-task.
     """
-    summary = find_session(args.session, args.base)
+    refs = list(args.session) if isinstance(args.session, (list, tuple)) else [args.session]
+    refs += [r for r in (getattr(args, "sessions", None) or []) if r not in refs]
+    if len(refs) > 1:
+        if args.after is not None:
+            raise RpcError("--after applies to one session, not several")
+        out = wait_for_any(refs, args.base, args.timeout, args.poll)
+        print(json.dumps(out, indent=2))
+        return 0 if out.get("completed") else (3 if out.get("blocked") else 2)
+
+    summary = find_session(refs[0], args.base)
     session_id = summary["sessionId"]
 
     if args.after is not None:
@@ -943,6 +953,49 @@ def cmd_wait(args) -> int:
                       "kind": (info.get("reason") or {}).get("kind"),
                       **info}, indent=2))
     return 0 if completed else 2
+
+
+def wait_for_any(refs: list[str], base: str, timeout: float, poll: float) -> dict:
+    """
+    Block until the FIRST of several workers ends a turn or blocks on you.
+
+    A lead with two workers running cannot know which finishes first; waiting
+    on the one it guesses leaves the other idle for up to the whole timeout
+    (measured: three 15-minute waits in one afternoon, each on the slower
+    worker). An idle worker among them returns at once, because an idle worker
+    is exactly what the lead needs to hear about.
+    """
+    afters: dict[str, int] = {}
+    for ref in refs:
+        summary = find_session(ref, base)
+        session_id = summary["sessionId"]
+        if not summary.get("running"):
+            last = last_turn_end(session_id, base)
+            return {"sessionId": session_id, "completed": last is not None,
+                    "alreadyIdle": True, **(last or {})}
+        afters[session_id] = head_seq(session_id, base)
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(poll)
+        for session_id, after in afters.items():
+            with contextlib.suppress(RpcError):
+                for event in reversed(fetch_events(session_id, base, 4)):
+                    if event.get("type") == "turn/end" and event.get("seq", -1) > after:
+                        reason = (event.get("data") or {}).get("reason") or {}
+                        return {"sessionId": session_id, "completed": True,
+                                "kind": reason.get("kind"), "reason": reason,
+                                "seq": event.get("seq"),
+                                "stillRunning": [s for s in afters if s != session_id]}
+        blocked = [item for item in pending_requests(base, 0.8, 4.0)
+                   if item.get("sessionId") in afters]
+        if blocked:
+            return {"sessionId": blocked[0]["sessionId"], "completed": False,
+                    "blocked": True, "pending": blocked,
+                    "hint": "answer with dsh_answer (questions) or dsh_approve "
+                            "(approvals), then wait again"}
+    return {"completed": False, "timedOut": True, "waited": timeout,
+            "stillRunning": list(afters)}
 
 
 def settings_path() -> Path:
@@ -1280,8 +1333,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--chars", type=int, default=8000)
     p.set_defaults(func=cmd_ask)
 
-    p = subparsers.add_parser("wait", help="block until the current turn ends")
-    p.add_argument("session")
+    p = subparsers.add_parser("wait", help="block until the current turn ends "
+                              "(several sessions: the first of them)")
+    p.add_argument("session", nargs="+")
     p.add_argument("--after", type=int, default=None)
     p.add_argument("--timeout", type=float, default=1800.0)
     p.add_argument("--poll", type=float, default=5.0)

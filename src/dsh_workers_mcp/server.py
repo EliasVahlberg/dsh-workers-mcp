@@ -155,15 +155,19 @@ def _tools() -> list[dict]:
                 "still reports `running`, so without the early return a wait would sit "
                 "out its whole timeout on an answer only you can give. On a block the "
                 "result has `blocked: true` and the pending items: settle them with "
-                "dsh_answer / dsh_approve, then wait again."
+                "dsh_answer / dsh_approve, then wait again. With `sessions` (several "
+                "workers) it returns on the FIRST of them to end a turn or block, "
+                "named in `sessionId`; an idle one among them returns at once. Use "
+                "that whenever more than one worker is running."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "session": SESSION_ARG,
+                    "sessions": {"type": "array", "items": {"type": "string"},
+                                 "description": "Several workers: return on the first."},
                     "timeout": {"type": "number", "default": 1800},
                 },
-                "required": ["session"],
             },
         },
         {
@@ -508,6 +512,14 @@ def _capture(func, args: Args) -> str:
     return buffer.getvalue().strip()
 
 
+def _wait(a: dict) -> str:
+    refs = ([a["session"]] if a.get("session") else []) + list(a.get("sessions") or [])
+    if not refs:
+        raise dshctl.RpcError("dsh_wait needs `session` or `sessions`")
+    return _capture(dshctl.cmd_wait, Args(
+        session=refs, after=None, timeout=a.get("timeout", 1800), poll=5.0))
+
+
 DISPATCH = {
     "dsh_list": lambda a: _capture(dshctl.cmd_list, Args(
         all=a.get("include_blank", False), limit=a.get("limit", 20))),
@@ -526,8 +538,7 @@ DISPATCH = {
         session=a["session"], prompt=a["prompt"], mode=a.get("mode", "queue"),
         timeout=a.get("timeout", 300), poll=3.0,
         chars=a.get("reply_chars", 8000))),
-    "dsh_wait": lambda a: _capture(dshctl.cmd_wait, Args(
-        session=a["session"], after=None, timeout=a.get("timeout", 1800), poll=5.0)),
+    "dsh_wait": lambda a: _wait(a),
     "dsh_models": lambda a: _capture(dshctl.cmd_models, Args(
         session=a["session"], reasoning_effort=a.get("reasoning_effort"),
         provider=a.get("provider"), model=a.get("model"))),

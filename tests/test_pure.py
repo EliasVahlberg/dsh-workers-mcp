@@ -647,3 +647,61 @@ def test_wait_ignores_other_sessions_pending(monkeypatch) -> None:
     completed, info = dshctl.wait_for_turn_end("s1", "b", 0, timeout=30, poll=0,
                                                watch_pending=True)
     assert info.get("timedOut") is True
+
+
+# --------------------------------------------------------- waiting on several
+
+def _fake_workers(monkeypatch, running: dict[str, bool], turn_ends: dict[str, list[int]],
+                  pending: list[dict] | None = None) -> None:
+    """Sessions with given running flags; turn_ends[s] is each poll's newest turn/end seq."""
+    polls = {s: iter(seqs) for s, seqs in turn_ends.items()}
+    monkeypatch.setattr(dshctl.time, "sleep", lambda s: None)
+    monkeypatch.setattr(dshctl, "find_session",
+                        lambda ref, base: {"sessionId": ref, "running": running[ref]})
+    monkeypatch.setattr(dshctl, "head_seq", lambda *a, **k: 100)
+    monkeypatch.setattr(dshctl, "last_turn_end",
+                        lambda sid, base: {"seq": 99, "kind": "completed"})
+
+    def events(sid, base, n):
+        seq = next(polls.get(sid, iter(())), 50)
+        return [{"type": "turn/end", "seq": seq, "data": {"reason": {"kind": "completed"}}}]
+    monkeypatch.setattr(dshctl, "fetch_events", events)
+    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: list(pending or []))
+
+
+def test_wait_any_returns_the_first_worker_to_finish(monkeypatch) -> None:
+    """The lead waited 15 minutes on the slower of two workers, three times in one afternoon."""
+    _fake_workers(monkeypatch, {"s1": True, "s2": True},
+                  {"s1": [50, 50, 50, 50], "s2": [50, 101]})
+    out = dshctl.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
+    assert out["sessionId"] == "s2" and out["completed"] is True
+    assert out["stillRunning"] == ["s1"]
+
+
+def test_wait_any_returns_at_once_for_an_idle_worker(monkeypatch) -> None:
+    _fake_workers(monkeypatch, {"s1": True, "s2": False}, {})
+    out = dshctl.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
+    assert out["sessionId"] == "s2" and out["alreadyIdle"] is True
+
+
+def test_wait_any_returns_on_a_block_and_names_the_worker(monkeypatch) -> None:
+    _fake_workers(monkeypatch, {"s1": True, "s2": True}, {},
+                  pending=[{"sessionId": "other"}, {"sessionId": "s1", "kind": "question/requested"}])
+    out = dshctl.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
+    assert out["blocked"] is True and out["sessionId"] == "s1"
+    assert [p["sessionId"] for p in out["pending"]] == ["s1"]
+
+
+def test_wait_any_times_out_naming_who_is_still_running(monkeypatch) -> None:
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(dshctl.time, "time", lambda: next(clock))
+    _fake_workers(monkeypatch, {"s1": True, "s2": True}, {})
+    out = dshctl.wait_for_any(["s1", "s2"], "b", timeout=30, poll=0)
+    assert out["timedOut"] is True and out["stillRunning"] == ["s1", "s2"]
+
+
+def test_cmd_wait_with_one_session_keeps_the_single_path(monkeypatch, capsys) -> None:
+    _fake_workers(monkeypatch, {"s1": False}, {})
+    dshctl.cmd_wait(_Args(session=["s1"], after=None, timeout=1.0, poll=0, base="b"))
+    out = json.loads(capsys.readouterr().out)
+    assert out["alreadyIdle"] is True and "sessionId" not in out

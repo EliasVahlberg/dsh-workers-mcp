@@ -31,7 +31,7 @@ python3 tools/dshctl/dshctl.py ask <session> "question"
 | Which model a worker runs on; change its reasoning effort | `dsh_models` (`reasoning_effort=` sets it, idle only) | no |
 | Delegate real work | `dsh_task` | **no** — returns immediately |
 | Quick question / design opinion | `dsh_ask` | yes, until turn end |
-| Wait for a running worker | `dsh_wait` | yes — returns early if it blocks |
+| Wait for a running worker | `dsh_wait` (`sessions=[…]` for several: first to end or block) | yes — returns early if it blocks |
 | **What a worker is blocked on** | `dsh_pending` | no |
 | **Unblock it** — a question | `dsh_answer` | no |
 | **Unblock it** — a tool approval | `dsh_approve` | no |

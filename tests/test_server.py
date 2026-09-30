@@ -75,11 +75,19 @@ def test_every_tool_declares_a_schema_and_description() -> None:
 
 def test_session_taking_tools_require_session() -> None:
     needs_session = {"dsh_status", "dsh_grep", "dsh_task", "dsh_ask",
-                     "dsh_wait", "dsh_models", "dsh_cancel", "dsh_answer",
-                     "dsh_goal"}
+                     "dsh_models", "dsh_cancel", "dsh_answer", "dsh_goal"}
     for tool in server._tools():
         if tool["name"] in needs_session:
             assert "session" in tool["inputSchema"].get("required", []), tool["name"]
+
+
+def test_wait_takes_one_session_or_several() -> None:
+    """dsh_wait's schema requires neither, so the handler has to refuse an empty call."""
+    wait = next(t for t in server._tools() if t["name"] == "dsh_wait")
+    assert {"session", "sessions"} <= set(wait["inputSchema"]["properties"])
+    response = _call("dsh_wait", {})
+    assert response["result"]["isError"] is True
+    assert "session" in response["result"]["content"][0]["text"]
 
 
 def test_pending_does_not_require_a_session() -> None:

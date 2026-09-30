@@ -256,5 +256,10 @@ a `FRICTION.md` entry shows the same mistake twice.
 - **A "cancelled" tool result is unknown, not undone.** A call the client shows
   as cancelled may have run anyway. Check the state it would have changed
   before retrying, the same way a dsh cancel receipt is not evidence.
+- **Calls in one batch run in parallel.** Never put a call in the same batch
+  as one that depends on its effect: reject, then re-dispatch; `add`, then
+  dispatch; dispatch, then wait. Each pair is two steps. A result from a
+  parallel batch is also a snapshot taken while the others were still
+  running: re-read the record before concluding it is wrong.
 - **Numbers come from the command, not memory.** Test counts, file sizes and
   commit ids in a report or a doc are copied from output you just ran.
