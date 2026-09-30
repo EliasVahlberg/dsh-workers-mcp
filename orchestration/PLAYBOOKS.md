@@ -43,8 +43,15 @@ go ahead if that is within your remit.
 
 **A good task:**
 - has one owner and one worktree;
-- fits in one worker turn, roughly under two hours or ~150 tool calls; if it
-  cannot, cut it at a point where the tree is green;
+- is a **whole piece**: a feature, a phase of a milestone, or a fix with its
+  tests and docs, built in one sustained run. The worker chooses the build
+  order and commits each green step; you do not sequence its steps for it.
+  Split a piece only for a reason you write in the task note: a decision not
+  yet made, two workers' files that overlap, a real fork in the road. An
+  unexplained small task costs a round-trip and puts the plan in your head
+  instead of the worker's. A piece may take several worker turns: when a turn
+  ends before it is done, the report is progress, not a verdict, and the reply
+  is "continue";
 - has acceptance you can check yourself, line by line:
   `make test passes`, `a scenario asserts the loader moves 30 flour`,
   `no file outside src/…/plot/ changes`. Never "works well" or "is clean";
@@ -58,8 +65,9 @@ go ahead if that is within your remit.
   existing suite green, and a doc line. New test classes or harnesses only
   where the task introduces an invariant the suite cannot already see. Asking
   for more is how a constants change comes back as 13 files and 750 lines;
-- states the **expected size** (files, rough lines), so the worker can tell
-  when it is drifting;
+- states the **expected size** of the whole piece (files, rough lines). It
+  describes the piece; it is not a cap to cut against. Its job is to let the
+  worker notice when a retune is turning into a rewrite;
 - says what is out of scope, so the worker does not "improve" neighbours.
 
 **Write numeric decisions as a formula plus one worked number**, and the
@@ -303,7 +311,7 @@ Done: T-004 (plot crop squares) merged and pushed as abc1234, full suite green.
 In progress: T-005 with the implementer, blocked on nothing.
 Decided (overrule if you disagree): 2 seeds per tile; clear refunds planted seeds.
 Needs you: the bottled-oil fork (T-006 waits on it; my pick is bottles, because …).
-Friction: one entry (T-005's first cut was too big for one turn; split it).
+Friction: one entry (T-005 was cut into three tasks with no reason given; next time, one).
 ```
 
 "Needs you" holds only what `PROJECT.md` reserves for the user. Each question
