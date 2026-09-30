@@ -104,12 +104,16 @@ Mechanics:
   deliberately interrupting (§5).
 - One task per dispatch. A second task queued behind the first loses the
   first's report in the noise; dispatch it after the verdict.
-- **Reasoning effort is a cost knob.** Where the model has levels
-  (`dsh_models`), a well-specified task (a retune, a mechanical change) may not
-  need the highest; debugging and design do. Set it per worker with
-  `dsh_models session=… reasoning_effort=…` while it is idle. Its effect on
-  quality is not measured yet: if you lower it, compare the next few results
-  and record what you saw in `FRICTION.md`.
+- **Model and reasoning effort are cost knobs.** Choose them per task, while
+  the worker is idle: `dsh_models session=… reasoning_effort=…`, and
+  `provider=… model=…` for a different model. A well-specified task (a
+  retune, a mechanical change) may not need the highest effort or the
+  largest model; debugging, design and load-bearing shared code may. `PROJECT.md`
+  lists the models on offer, their prices, and which choices are yours. A
+  switch changes only that worker; the server restores the global default.
+  Record the choice in the task note, switch back when the task ends, and
+  note in `FRICTION.md` whether the dearer choice saved rounds: that record
+  is the only way to know whether it pays.
 
 ## 4. Waiting and unblocking
 
