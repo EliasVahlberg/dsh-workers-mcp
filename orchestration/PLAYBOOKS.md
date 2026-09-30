@@ -88,12 +88,25 @@ planned goes in the roadmap or the QA backlog, not `tasks.json`.
 **Ids the user named:** `dsh_tasks add id=T-007` claims it. Otherwise ids go
 by arrival order, and adds in one batch can swap.
 
-**Research first when** the task depends on engine behaviour nobody has
-verified, or on a choice between designs. Dispatch a read-only researcher
-with the question, then cut the implementation from its answer. Research that
-lands in a doc is reusable; research that lives in one worker's context is not.
+**Choose the planning rigor per piece.** One ceremony for everything
+over-works the trivial and under-works the hard:
 
-**Ask for positions first when** the task makes a design decision (§7).
+| Rung | The piece gets | When |
+|---|---|---|
+| P0 | a few checkable outcomes and pointers to the code | small, reversible, well-trodden: a retune, a fix with a known cause |
+| P1 | a full dispatch (`templates/DISPATCH.md`); the default | most pieces |
+| P2 | P1, after a research round | the spec would otherwise freeze on an unknown: engine behaviour nobody has verified, an open design space |
+| P3 | P2, plus positions from two workers (§7) and your decision | a wrong plan would look right from inside: load-bearing shared code, save formats, conservation rules |
+
+The test for going up a rung is "would a wrong plan be expensive, hard to undo
+and invisible from inside?", not "is this piece important?". An important
+piece with no unknown and no hidden failure mode stays at P1. Say the rung in
+the task note.
+
+For P2, dispatch a read-only researcher with the question, then cut the
+implementation from its answer. Research comes back as findings with sources,
+not as a design; the design is yours. Research that lands in a doc is
+reusable; research that lives in one worker's context is not.
 
 ## 3. Dispatching
 
