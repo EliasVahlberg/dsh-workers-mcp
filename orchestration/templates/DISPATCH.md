@@ -20,9 +20,10 @@ Acceptance (the lead checks each line itself):
   component, asserted before and after each operation">
 - <scope line, e.g. only files under src/…/plot/ change>
 
-Expected size of the whole task: <e.g. 6 files, ~500 lines>. If it is
-heading past twice that, stop and report why before going on. Ideas beyond the task go in the
-report, not in the diff.
+Expected size of the whole task: <e.g. 6 files, ~500 lines>. Before each
+commit run `git diff --stat main...`; if the total is past twice that, stop
+and report why before going on. Ideas beyond the task go in the report, not
+in the diff.
 
 Out of scope: <neighbouring things it must not fix or refactor; say "report
 it" instead>.

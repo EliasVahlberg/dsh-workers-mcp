@@ -205,7 +205,11 @@ hire, brief from its brief and its last report, retire the old one.
 A report is a claim. Before any verdict:
 
 1. **Scope.** `git -C <worktree> diff --stat main...` lists only files the task
-   could touch. A surprise file is a question for the worker, not a nit.
+   could touch. A surprise file is a question for the worker, not a nit. Its
+   last line is also the size: compare it with the task's stated size. Past
+   twice the stated size without a stop and a report means the worker skipped
+   its own check (worker brief); say so in the verdict, and if the same worker
+   does it again, that is a `FRICTION.md` entry, not another reminder.
 2. **Read the diff** behind each acceptance line, and anything touching
    shared code. The full read of everything merged is the batch review's
    (§7).
