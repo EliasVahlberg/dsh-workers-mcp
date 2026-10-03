@@ -309,8 +309,10 @@ mode=steer` rather than waiting for the round to end.
    and unpushed, it may stay while a fix is chased, provided nothing is pushed
    from it, no branch is cut from it, and the task note says so. Reverting a
    local fast-forward costs more than it protects.
-4. Remove the worktree and the branch. `dsh_tasks update status=merged` with
-   the commit.
+4. Before removing the worktree, read the report's last section for logs or
+   other files it names and copy them out (untracked and ignored files, such as
+   build logs, go with the worktree). Then remove the worktree and the branch.
+   `dsh_tasks update status=merged` with the commit.
 5. Inform affected workers (§9). Push only as `PROJECT.md` allows.
 
 **Abandon** a task that no longer makes sense, with the reason. Keep the
