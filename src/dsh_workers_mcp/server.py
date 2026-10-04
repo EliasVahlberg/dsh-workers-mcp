@@ -448,7 +448,9 @@ def _tools() -> list[dict]:
                     "session": SESSION_ARG,
                     "role": {"type": "string"},
                     "text": {"type": "string", "description": "for 'note'"},
-                    "retired": {"type": "boolean", "description": "for 'set'"},
+                    "retired": {"type": "boolean", "description": "for 'set'. Retiring a worker "
+                                "below ~85% context returns a warning: dsh compacts by itself at "
+                                "~80%, so context is not a reason to retire."},
                     "include_retired": {"type": "boolean", "default": False},
                 },
             },

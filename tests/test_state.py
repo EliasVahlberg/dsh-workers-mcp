@@ -240,6 +240,34 @@ def test_judgment_goes_through_the_tool_and_cannot_touch_auto(dsh, state) -> Non
     assert json.loads(text(call("dsh_roster", {})))["workers"] == []
 
 
+def test_retiring_a_worker_below_the_compaction_trigger_warns(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    call("dsh_roster", {"action": "adopt", "session": "aaaa1111", "role": "implementer"})
+    dsh.sessions[sid]["projections"]["values"]["contextPressure"]["pressureTokens"] = 790
+    result = json.loads(text(call("dsh_roster", {"action": "set", "session": "aaaa1111",
+                                                 "retired": True})))
+    assert "retired at 79.0% context" in result["warning"]
+    assert "not a reason to retire" in result["warning"]
+    assert state.roster()["workers"][sid]["notes"]["retired"] is True  # a reminder, not a block
+
+
+def test_retiring_a_worker_near_the_window_does_not_warn(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    call("dsh_roster", {"action": "adopt", "session": "aaaa1111", "role": "implementer"})
+    dsh.sessions[sid]["projections"]["values"]["contextPressure"]["pressureTokens"] = 900
+    result = json.loads(text(call("dsh_roster", {"action": "set", "session": "aaaa1111",
+                                                 "retired": True})))
+    assert "warning" not in result
+
+
+def test_un_retiring_or_setting_a_role_does_not_warn(dsh, state) -> None:
+    dsh.add("session-aaaa1111")
+    call("dsh_roster", {"action": "adopt", "session": "aaaa1111", "role": "implementer"})
+    result = json.loads(text(call("dsh_roster", {"action": "set", "session": "aaaa1111",
+                                                 "role": "reviewer"})))
+    assert "warning" not in result
+
+
 # ----------------------------------------------------------------- tasks
 
 def _task(title="build the bench", **kw) -> str:

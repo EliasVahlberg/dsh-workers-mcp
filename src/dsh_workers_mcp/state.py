@@ -678,9 +678,36 @@ def cmd_roster(state: State, arguments: dict) -> dict:
             raise dshctl.RpcError("note needs text")
         return state.add_note(session_id, arguments["text"])
     if action == "set":
-        return state.set_judgment(session_id, role=arguments.get("role"),
-                                  retired=arguments.get("retired"))
+        result = state.set_judgment(session_id, role=arguments.get("role"),
+                                    retired=arguments.get("retired"))
+        if arguments.get("retired"):
+            warning = retire_warning(state, session_id)
+            if warning:
+                result = {**result, "warning": warning}
+        return result
     raise dshctl.RpcError(f"unknown roster action {action!r}")
+
+
+# dsh compacts a session by itself at about 80% of its window (the default
+# thresholdRatio). A worker retired well below that is retired for a reason that
+# is not context. The warning is a reminder at the moment of the decision, not a
+# block: there are other good reasons to retire a worker.
+RETIRE_WARN_BELOW_PCT = 85.0
+
+
+def retire_warning(state: State, session_id: str) -> str | None:
+    try:
+        state.observe(session_id)
+    except dshctl.RpcError:
+        pass
+    pct = (state.session_state(session_id).get("context") or {}).get("usedPct")
+    if pct is None or pct >= RETIRE_WARN_BELOW_PCT:
+        return None
+    return (f"retired at {pct}% context. dsh compacts a session by itself at about "
+            "80% and keeps a summary, so context level is not a reason to retire "
+            "a worker; a new hire rebuilds what this one knows (PLAYBOOKS section 5, "
+            "Context). If context was the reason, undo it with action=set "
+            "retired=false. If it was another reason, record it with action=note.")
 
 
 def cmd_tasks(state: State, arguments: dict) -> dict:
