@@ -60,6 +60,10 @@ are the read; what you remember of them is not.
 
 ## Hiring a worker
 
+Hire for a new role, a disjoint area or parallel capacity. Do not hire to
+replace a worker for its context level: a long-lived worker has learned the
+area, and compaction keeps that in dense form (PLAYBOOKS §5, Context).
+
 1. `dsh_create` with `cwd` = the workspace root and `permission` set. Never
    dispatch anything under the default.
 2. `dsh_name` with `<role> — <scope>`, e.g. `implementer — plot networks`.

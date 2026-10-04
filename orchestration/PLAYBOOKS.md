@@ -195,10 +195,25 @@ a loop of edits and reruns with no progress: stop it and ask for a position
 Answer that, or hand the diagnosis to a fresh read-only worker. Do not
 re-send the same prompt.
 
-**Context.** Compaction is normal and does not degrade work (skill). Watch for
-the one real failure: `context.usedPct` climbing with no new summaries means an
-orphaned compaction lock; that worker needs a restart, which is a new session:
-hire, brief from its brief and its last report, retire the old one.
+**Context.** High context pressure is not a reason to replace a worker.
+dsh compacts a session by itself when it reaches 80% of the model's window (the
+default, `thresholdRatio`; check `dsh_status` and the deployment config if in
+doubt) and keeps the most recent 16% plus a summary. A worker at 79% is about
+to compact, not at a ceiling. A compacted worker keeps what it learned in dense
+form and needs no re-orientation; a new hire rebuilds that from its brief and
+reports, and the first days of its work are the price. Compaction is lossy for
+rejected alternatives and the reasons behind decisions, so the gate before a
+long session rolls on is that those are in the repo, `DECISIONS.md` or the
+roster notes, which is a request to the worker, not a hire.
+
+The one real failure is an orphaned compaction lock: `context.usedPct` is still
+above about 85% at the end of a turn, or keeps climbing turn after turn with no
+new summaries. Only then does the worker need a restart, which is a new
+session: hire, brief from its brief and its last report, retire the old one.
+
+Hire for a new role, a disjoint area or parallel capacity. If you do retire a
+worker, write the reason and its `usedPct` in the roster note, so a wrong call
+can be found later.
 
 ## 6. Verifying a returned task
 
@@ -339,7 +354,8 @@ branch if it holds anything worth reading later, and say so in the note.
 ## 10. Retiring and restarting workers
 
 Retire (set `roster` notes, no more dispatches) when its area is finished,
-its role no longer exists, or it needs a restart (§5). Leave the session in
+its role no longer exists, or it needs a restart because of a compaction
+failure (§5). High context alone is not a reason: the worker compacts itself. Leave the session in
 dsh; do not delete it. Its successor's brief includes the predecessor's brief,
 last report, and anything in `DECISIONS.md` for that area.
 
