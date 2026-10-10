@@ -23,13 +23,20 @@ Sources read (READMEs, and OpenRig's docs in full where relevant):
   (`wave-sdlc.md`, `planning-dial.md`, `refocus-channel.md`,
   `release-boundary.md`, `knowledge-maturity.md`).
 - [awesome-agent-orchestrators](https://github.com/andyrewlee/awesome-agent-orchestrators):
-  its "autonomous loop runners" and "task runners" sections (ralphex,
-  bernstein, paperclip).
+  its "autonomous loop runners" section (ralphex, bernstein), its "autonomous task
+  runners" section, and Paperclip from its "multi-agent swarms" section.
 - [OpenRig (EliasOenal)](https://github.com/EliasOenal/OpenRig): a multi-user,
-  sandboxed agent runtime. Relevant only for its scheduled (cron) runs.
-- [OpenWork](https://github.com/different-ai/openwork): a desktop app for
-  sharing skills and MCP servers. Nothing to adopt beyond per-worktree dev
-  profiles, which the headless harness already has.
+  sandboxed agent runtime (its README names firejail sandboxes). Relevant only for
+  its scheduled (cron) runs.
+- [OpenWork](https://github.com/different-ai/openwork): a desktop app, also usable
+  as an MCP, for reusing skills and MCP servers across agents. Nothing to adopt
+  beyond per-worktree dev profiles, which the headless harness already has.
+
+On 10 Oct 2026 we checked the claims about these projects against their current
+repositories. The files, the quoted phrase, the planning levels P0 to P4 and the
+named commands exist. Two statements were wrong or unclear and are fixed: the
+sandbox of OpenRig (EliasOenal) is firejail, and Paperclip is not in the task
+runners section.
 
 ## Finding
 
@@ -155,6 +162,6 @@ Prerequisites and unknowns:
 - OpenRig's ceremony: lock stamps, receipts on every candidate, `rig mode`
   scope bindings, multi-phase migration receipts. It is hard to maintain and
   test at this scale, and it solves problems a two-worker team does not have.
-- OpenRig (EliasOenal)'s OS-level user isolation: bwrap plus the permission
-  presets already cover a single-user machine.
+- OpenRig (EliasOenal)'s OS-level user isolation (firejail sandboxes). Here the
+  bwrap wrapper and the permission presets cover a single-user machine.
 - OpenWork's capability marketplace: not an orchestration problem.

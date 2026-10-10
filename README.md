@@ -14,7 +14,7 @@ The runtime is **stdlib-only**. It has no dependencies, and that includes a WebS
 
 **Not affiliated with DeepSeek.** This is an independent project. DeepSeek does not make, endorse or support it. It drives the open-source [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) through the HTTP API of that program.
 
-**Not an [A2A](https://a2a-protocol.org/) implementation.** It has no Agent Cards, no `message/send` and no Task lifecycle. We evaluated A2A and declined it on purpose. Its guiding principle is *opaque execution*. About half of the value here is the opposite: the tools show context pressure, cache-hit rates, step counts, turn-end reasons and reasoning-block sizes, so that an orchestrator can supervise closely. [`docs/A2A_EVAL.md`](docs/A2A_EVAL.md) gives the reasoning. It also names the three A2A ideas that are worth borrowing, and the conditions that would change the verdict.
+**Not an [A2A](https://a2a-protocol.org/) implementation.** It has no Agent Cards, no `SendMessage` operation and no Task lifecycle. We evaluated A2A and declined it on purpose. Its guiding principle is *opaque execution*. About half of the value here is the opposite: the tools show context pressure, cache-hit rates, step counts, turn-end reasons and reasoning-block sizes, so that an orchestrator can supervise closely. [`docs/A2A_EVAL.md`](docs/A2A_EVAL.md) gives the reasoning. It also names the three A2A ideas that are worth borrowing, and the conditions that would change the verdict.
 
 In the taxonomy of A2A itself, this is an agent-to-agent capability that runs over an agent-to-tool transport. That is a real tradeoff, not an oversight. It works for one orchestrator that drives local workers. It stops working when a worker must *start* contact and not only respond.
 
@@ -233,7 +233,7 @@ The modules import each other in one direction only. The docstring of [`src/dsh_
 
 To add a tool, add one `Tool` object to `tools/session_tools.py`, `tools/work_tools.py` or `tools/state_tools.py`. It holds the name, the description, the schema, the handler, and a one-line summary. Then run `uv run python scripts/gen-tool-tables.py` to update the tool tables in this README and in the skill. `tests/test_tool_tables.py` fails when a table is out of date.
 
-423 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+441 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious

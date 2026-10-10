@@ -10,6 +10,14 @@ the divergence on the other layer is deliberate on A2A's part, not an omission.
 Do not adopt A2A for local dsh workers. Steal three specific ideas from it.
 Revisit if a worker ever leaves this machine.**
 
+**Re-checked on 10 Oct 2026.** The repository `a2aproject/A2A` exists, its latest
+release is v1.0.1 (28 May 2026), and the specification is at v1.0. The facts below
+still hold: the Linux Foundation, the gRPC and JSON-RPC bindings, the Agent Card at
+`/.well-known/agent-card.json`, the `TASK_STATE_*` lifecycle, push notifications.
+One name changed: the operation that older drafts called `message/send` is
+`SendMessage` in v1.0. We did not check the HTTP+JSON binding or the claim that
+Google contributed the protocol, and we did not repeat the grep of the dsh source.
+
 ## What A2A is
 
 Open protocol under the Linux Foundation, contributed by Google. Three

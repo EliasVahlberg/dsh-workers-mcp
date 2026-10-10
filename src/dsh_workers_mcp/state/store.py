@@ -13,6 +13,7 @@ import contextlib
 import datetime as _dt
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -26,6 +27,8 @@ from dsh_workers_mcp.transport import DshClient, HttpClient
 
 DEFAULT_DIRNAME = ".orchestrator"
 LOG_RESULT_CHARS = 20_000   # per logged call; the full text is in dsh anyway
+# A session id is one plain file name: letters, digits, dot, dash, underscore. No separator.
+SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 # ------------------------------------------------------------------ helpers
@@ -105,6 +108,15 @@ class Store:
         return self.root / "tasks.json"
 
     def session_dir(self, session_id: str) -> Path:
+        """
+        The history directory of one session.
+
+        A session id comes from dsh, never from a tool argument: `find_session`
+        returns an id that dsh listed. This check is a second line. An id with a
+        separator, or one that is "." or "..", would put files outside `history/`.
+        """
+        if not SAFE_ID.fullmatch(str(session_id)):
+            raise RpcError(f"refusing session id {session_id!r}: it is not a plain file name")
         return self.root / "history" / session_id
 
     def _lock(self, name: str):

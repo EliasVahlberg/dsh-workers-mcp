@@ -36,6 +36,8 @@ format can change. The Status section of the README lists what ran and what did 
 - All calls to dsh go through one `DshClient` interface. A recording of the response
   shapes (`contracts/dsh-shapes.json`) lets the server report drift of the dsh API.
 - Modules import in one direction, and a test enforces the layers.
+- A session id must be a plain file name before it becomes a directory in the state
+  directory. Task ids already had to look like `T-007`.
 - CI runs the tests on Python 3.10 to 3.13, ruff, mypy, and a complexity ratchet.
 
 ### Known limits

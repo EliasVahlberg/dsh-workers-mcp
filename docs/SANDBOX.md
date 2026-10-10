@@ -5,6 +5,14 @@ The permission presets (`overlays/tool-policy/`) control what a worker is
 way to put the whole dsh server in a box. Read the "Known problem" section
 before you rely on the box.
 
+**Status of this page.**
+- Verified: the table below, from a scratch worker. The wrapper passes its
+  self-test. `dsh web` boots under it and answers HTTP.
+- Not verified: that a worker can run a command under the wrapper (see "Known
+  problem"). Nobody has run a worker turn there. Issue #13 tracks the check.
+- Not answered: whether dsh can give each worker its own writable root. A worker
+  can write into the area of another worker today.
+
 ## What a worker can and cannot do
 
 This is from testing. We used a scratch worker at the `autonomous` preset, in a
