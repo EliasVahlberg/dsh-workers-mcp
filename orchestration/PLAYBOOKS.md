@@ -170,7 +170,8 @@ Mechanics:
   `provider=… model=…` for a different model.
   - A well-specified task (a change to constants, a mechanical change) may not
     need the highest effort or the largest model. Debugging, design and
-    load-bearing shared code may need them.
+    load-bearing shared code may need them. Do not put a stronger model on a
+    whole feature next to a cheaper model that edits the same files.
   - `PROJECT.md` lists the models on offer, their prices, and which choices are
     yours.
   - A switch changes only that worker. The server restores the global default.
@@ -200,6 +201,8 @@ engineering judgment within the scope of the task.
   the task.
 - If the answer will matter again, write it in `DECISIONS.md` now. Do not wait
   for the end of the session.
+- If the question is about code that you have not read, read it first. Cite
+  `file:line` in the answer. Do not answer from memory.
 
 **An approval** (`dsh_approve`). Judge the arguments (METHOD). These are the
 common calls:
@@ -245,6 +248,12 @@ times, or a loop of edits and reruns with no progress. Stop the worker and ask
 for a position: "What have you tried, what do you think is wrong, what would you
 try next?" Answer it, or hand the diagnosis to a fresh read-only worker. Do not
 send the same prompt again.
+
+**Parked work.** A task can wait on something else, for example a merge of
+another task. Write a note on the task that starts with `PARKED on <blocker>.
+Resume: <first action>.` `dsh_brief` shows a note of this form on the task line,
+until a later note replaces it. Use no new status. The age of the task in its
+status is already on the line.
 
 **Context.** High context pressure is not a reason to replace a worker.
 - dsh compacts a session by itself when it reaches 80% of the window of the
@@ -313,7 +322,8 @@ A report is a claim. Before you give any verdict, do these steps:
 3. **Run the checks yourself**, in the worktree, with the commands in
    `PROJECT.md`. Never accept "tests pass" from the report.
 4. **Tick each acceptance line** with the evidence (a test name, the result of a
-   command, a file). A line that you cannot tick is not met.
+   command, a file). A line that you cannot tick is not met. A run of zero tests,
+   an empty report and empty output all count as unverified.
 5. **Look for what the report did not say:** tests that were weakened or
    deleted, skipped or xfailed tests that were added, TODOs, debug output,
    changed tolerances, and commented-out code.
@@ -402,7 +412,10 @@ for the round to end.
 
 **Merge** when every line is ticked:
 1. The main checkout must be clean (`git status --short` is empty). If it is
-   not, it holds work in progress of the user. Stop and ask.
+   not, check each stray file before you decide whose it is. A worker may have
+   written it. Match it against the open branches and worktrees. If it is a stray
+   copy of a worker's file, set it aside with a labelled `git stash`. Do not
+   delete it. If it is work in progress of the user, stop and ask.
 2. Run `git -C <repo> merge --ff-only wt/<name>`. If it cannot fast-forward, the
    branch is behind. Ask the worker to rebase onto `main` and run its checks
    again. (It owns its conflicts.) Then verify the rebased branch again. Do not
@@ -465,7 +478,11 @@ Needs you: the storage fork (T-006 waits on it; my pick is Postgres, because …
 Friction: one entry (T-005 was cut into three tasks with no reason given; next time, one).
 ```
 
-"Needs you" holds only what `PROJECT.md` reserves for the user. Number each
+"Needs you" holds only what `PROJECT.md` reserves for the user, and only what the
+user can act on now. Do not list "confirm X after Y merges" while Y still runs.
+In testing, the user acted on an item like that and tested something that was
+not there yet. Put "when Y merges I will ask you to check X" under In progress,
+and make the request in the report where Y merges. Number each
 question. The user can answer each one in a word or a line. Include your
 recommendation with each. Everything else goes under "Decided", already acted
 on. Say what you verified and what you did not.

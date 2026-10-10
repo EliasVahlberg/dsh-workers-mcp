@@ -37,6 +37,9 @@ Stop and ask when: <The decisions that are not the worker's: a pillar, a public
 interface, another worker's files, anything outside the worktree, a test that
 must be weakened to pass.>
 
+Decisions that bind this task: <The entries of DECISIONS.md that apply, by
+heading. Write "none" if none apply.>
+
 Read first, if you have not already: <The one or two documents or files that
 matter. Skip what the worker's brief already covered.>
 
@@ -44,4 +47,5 @@ Report in under 2000 characters:
 - what changed (files, and commits on <branch>)
 - how you checked it (the commands you ran, and the results)
 - for each acceptance line: met or not met, with the evidence
+- the decisions you made, each with its reason
 - anything you were unsure of, did not do, or noticed and left alone

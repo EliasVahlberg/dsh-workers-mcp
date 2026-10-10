@@ -21,6 +21,7 @@ copy into it>`
 
 - Build: `<command>`
 - Test: `<command>`
+- Models: `<which model and effort to use for debugging and design, and which for routine pieces>`
 - Known traps: `<…>`
 - Found only by hand: `<Paths that a headless suite cannot reach, for example
   rendering, a real browser or a device. List them, so that nobody reads a

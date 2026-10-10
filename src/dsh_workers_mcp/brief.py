@@ -32,6 +32,10 @@ HOOK_MAX_LINES = 20
 HOOK_LINE_CHARS = 200
 TITLE_CHARS = 60
 ROLE_CHARS = 40
+# A note that starts like this marks work that waits on something else, with the
+# first action to take on resume (PLAYBOOKS §5). The brief shows it on the task.
+PARKED = "PARKED on"
+PARKED_CHARS = 160
 # Statuses in which the worktree is being worked on or looked at: show its size.
 WORKING = {"dispatched", "blocked", "returned", "in-review"}
 
@@ -125,6 +129,10 @@ def build(state: st.State, *, now: _dt.datetime | None = None,
                     + (f", out {total['output']:,}" if "output" in total else "")
                     + (f", {total['steps']:g} steps" if "steps" in total else ""))
         tasks.append(line + "".join(f" | {part}" for part in (size, used) if part))
+        notes = task.get("notes") or []
+        parked = notes[-1]["text"] if notes and notes[-1]["text"].startswith(PARKED) else None
+        if parked:
+            tasks[-1] += f" | {parked[:PARKED_CHARS]}"
         if task["status"] == "returned":
             needs.append(f"verdict on {task['id']}: returned {since} ago")
         elif task["status"] == "blocked":

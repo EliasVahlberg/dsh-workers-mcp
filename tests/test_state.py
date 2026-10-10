@@ -347,7 +347,7 @@ def test_task_lifecycle_dispatched_blocked_returned(dsh, state) -> None:
 def test_closed_tasks_are_left_alone(dsh, state) -> None:
     dsh.add("session-aaaa1111")
     tid = _task()
-    call("dsh_tasks", {"action": "update", "id": tid, "status": "abandoned"})
+    call("dsh_tasks", {"action": "update", "id": tid, "status": "abandoned", "note": "superseded"})
     result = call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": tid})
     assert result["isError"] is True and "reopen" in text(result)
     assert json.loads(text(call("dsh_tasks", {})))["tasks"] == []
@@ -398,6 +398,20 @@ def test_roster_writes_return_a_short_acknowledgement(dsh, state) -> None:
     assert ack["lastNote"].startswith("note 19") and "auto" not in ack
     full = json.loads(text(call("dsh_roster", {"action": "show", "session": "aaaa1111"})))
     assert len(full["worker"]["notes"]["log"]) == 20
+
+
+def test_closing_a_task_needs_a_note(dsh, state) -> None:
+    tid = _task()
+    for status in ("merged", "rejected", "abandoned", "done"):
+        refused = call("dsh_tasks", {"action": "update", "id": tid, "status": status})
+        assert refused["isError"] is True and "needs a note" in text(refused)
+        blank = call("dsh_tasks", {"action": "update", "id": tid, "status": status, "note": "  "})
+        assert blank["isError"] is True
+    assert state.tasks()["tasks"][tid]["status"] == "open"           # nothing changed
+    # A note that is not the closing note does not count, and open states need none.
+    assert call("dsh_tasks", {"action": "update", "id": tid, "status": "in-review"})["isError"] is False
+    ok = call("dsh_tasks", {"action": "update", "id": tid, "status": "merged", "note": "abc1234"})
+    assert ok["isError"] is False and state.tasks()["tasks"][tid]["status"] == "merged"
 
 
 def test_task_updates_are_validated(dsh, state) -> None:
@@ -702,11 +716,11 @@ def test_rounds_count_dispatches_and_the_report_groups_by_model(dsh, state) -> N
         call("dsh_task", {"session": sid[8:], "prompt": "go", "task_id": tid})
         dsh.turn(sid, "work", "done")
         state.observe(sid)
-    call("dsh_tasks", {"action": "update", "id": t1, "status": "rejected"})
+    call("dsh_tasks", {"action": "update", "id": t1, "status": "rejected", "note": "weak asserts"})
     call("dsh_task", {"session": "aaaa1111", "prompt": "again", "task_id": t1})   # rework
     dsh.turn(flash, "again", "done")
     state.observe(flash)
-    call("dsh_tasks", {"action": "update", "id": t3, "status": "merged"})
+    call("dsh_tasks", {"action": "update", "id": t3, "status": "merged", "note": "abc1234"})
     # label the third task's first dispatch as another model
     data = state.tasks()
     data["tasks"][t3]["dispatches"][0].update(model="other/strong", effort="max")

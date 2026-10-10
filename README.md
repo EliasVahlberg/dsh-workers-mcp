@@ -176,7 +176,7 @@ The skill covers both facts in more detail, with source citations.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-283 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+285 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious

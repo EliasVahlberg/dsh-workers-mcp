@@ -529,6 +529,10 @@ class State:
                 if value is not None:
                     task[key] = value
             if status is not None and status != task["status"]:
+                if status in CLOSED and not (note or "").strip():
+                    raise dshctl.RpcError(
+                        f"closing {task_id} as {status} needs a note: the commit for merged, "
+                        "the reason for rejected or abandoned, the outcome for done")
                 task["status"] = status
                 task["history"].append({"at": stamp, "status": status, "by": "orchestrator"})
             if note:

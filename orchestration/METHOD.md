@@ -68,6 +68,10 @@ that are marked *server* automatically. Never edit them by hand. Use
 | `DECISIONS.md` | you | answers and decisions that future workers or sessions will need |
 | `FRICTION.md` | you | where this method did not fit, and what you did instead |
 
+To test whether the state is enough, run a cold start. Open a fresh read-only
+session that has only the state directory. Ask what it would do next. If it
+cannot say, the state is not enough.
+
 ## Start of every lead session
 
 1. Call `dsh_brief`. It does the whole sweep in one call. It refreshes the

@@ -31,7 +31,7 @@ def worker(state, sid, role, *, running=False, task=None, missing=False, retired
 def task(state, title, status, owner=None, **fields) -> str:
     tid = state.add_task(title, owner=owner, **fields)["id"]
     if status != "open":
-        state.update_task(tid, status=status)
+        state.update_task(tid, status=status, note="test fixture")
     return tid
 
 
@@ -215,3 +215,19 @@ def test_long_free_text_roles_are_cut_to_their_first_clause() -> None:
     assert brief._role({"role": long_role}) == "implementer"
     assert brief._role({"role": "x" * 100}) == "x" * 39 + "\u2026"
     assert brief._role({}) == "(no role)"
+
+
+def test_a_parked_note_shows_on_the_task_line_until_a_later_note_replaces_it(state) -> None:
+    tid = task(state, "waits on a merge", "dispatched", A)
+    state.update_task(tid, note="PARKED on T-009 merge. Resume: rebase, then rerun make test.")
+    line = next(l for l in brief.build(state, now=later(hours=1), pending=[], dsh="up")["openTasks"]
+                if l.startswith(tid))
+    assert "PARKED on T-009 merge. Resume: rebase, then rerun make test." in line
+    state.update_task(tid, note="T-009 merged; resumed.")
+    line = next(l for l in brief.build(state, now=later(hours=1), pending=[], dsh="up")["openTasks"]
+                if l.startswith(tid))
+    assert "PARKED" not in line
+    plain = task(state, "no parked note", "dispatched", A)
+    state.update_task(plain, note="the worker asked about naming")
+    assert "|" not in next(l for l in brief.build(state, now=later(hours=1), pending=[], dsh="up")["openTasks"]
+                           if l.startswith(plain)).split("(owner")[1]
