@@ -42,6 +42,19 @@ server is needed: the tests use a stand-in (`tests/fakes.py`, `tests/fake_http.p
 Do not edit `assets/banner.svg`, `assets/social.svg` or `assets/social.png` by hand.
 [`assets/README.md`](assets/README.md) says how to rebuild them.
 
+## Release
+
+1. Set `__version__` in `src/dsh_workers_mcp/__init__.py`. It is the only place.
+2. In `CHANGELOG.md`, add a section for the version with the date in the heading.
+3. Commit, and wait for CI to pass.
+4. Make a signed tag and push it: `git tag -s vX.Y.Z -m "vX.Y.Z"`, then
+   `git push origin vX.Y.Z`.
+
+The `release` workflow runs the tests, checks that the tag is `v` plus the version and
+that the changelog section has a date, builds the wheel and the source archive, and
+creates the GitHub release with the changelog section as its notes. To try every step
+except the last one, run the workflow by hand from the Actions tab.
+
 ## A change to a dsh call
 
 The dsh API is not a stable interface. If you change what the code reads from a

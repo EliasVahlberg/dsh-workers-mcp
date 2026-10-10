@@ -1,6 +1,6 @@
 [project]
 name = "dsh-workers-mcp"
-version = "0.1.0"
+dynamic = ["version"]      # the version is `__version__` in src/dsh_workers_mcp/__init__.py
 description = "MCP server for driving long-lived DeepSeek Harness (dsh) agent sessions as persistent workers: dispatch, unblock, inspect, and steer them from an orchestrating agent."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -54,6 +54,9 @@ files = ["src"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/dsh_workers_mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dsh_workers_mcp"]

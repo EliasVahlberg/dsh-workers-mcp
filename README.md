@@ -233,7 +233,7 @@ The modules import each other in one direction only. The docstring of [`src/dsh_
 
 To add a tool, add one `Tool` object to `tools/session_tools.py`, `tools/work_tools.py` or `tools/state_tools.py`. It holds the name, the description, the schema, the handler, and a one-line summary. Then run `uv run python scripts/gen-tool-tables.py` to update the tool tables in this README and in the skill. `tests/test_tool_tables.py` fails when a table is out of date.
 
-414 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+423 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious

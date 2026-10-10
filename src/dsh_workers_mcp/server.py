@@ -21,6 +21,7 @@ import sys
 import time
 import traceback
 
+from dsh_workers_mcp import __version__
 from dsh_workers_mcp import state as state_mod
 from dsh_workers_mcp.shape import CheckedClient
 from dsh_workers_mcp.tools import Context, Tool, all_tools
@@ -33,7 +34,7 @@ STATE: state_mod.State | None = None
 CLIENT: DshClient = CheckedClient(HttpClient())
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_INFO = {"name": "dsh-workers", "version": "0.1.0"}
+SERVER_INFO = {"name": "dsh-workers", "version": __version__}
 
 # The tools by name. A test adds a tool by adding an entry here.
 TOOLS: dict[str, Tool] = {tool.name: tool for tool in all_tools()}

@@ -1,0 +1,47 @@
+name: release
+
+# A tag such as v0.1.0 builds the package and creates a GitHub release with the wheel,
+# the source archive and the notes from CHANGELOG.md. Run the workflow by hand (the
+# "Run workflow" button) to do every step except the last one, without a tag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        run: uv sync --python 3.12
+      - name: Test
+        run: uv run pytest
+      - name: Check the tag and write the notes
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          if [ -n "$TAG" ]; then
+            python3 scripts/release-notes.py --tag "$TAG" > notes.md
+          else
+            python3 scripts/release-notes.py > notes.md
+          fi
+          cat notes.md
+      - name: Build
+        run: uv build
+      - name: List the files
+        run: ls -l dist
+      - name: Create the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/* --title "$TAG" --notes-file notes.md --verify-tag
