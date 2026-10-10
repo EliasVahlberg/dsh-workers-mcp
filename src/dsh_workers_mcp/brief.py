@@ -116,7 +116,15 @@ def build(state: st.State, *, now: _dt.datetime | None = None,
         line = (f"{task['id']} [{task['status']} {since}] {task['title'][:TITLE_CHARS]} "
                 f"(owner {_short(task.get('owner'))})")
         size = _size(task) if task["status"] in WORKING else None
-        tasks.append(line + (f" | {size}" if size else ""))
+        usage = st.task_usage(task)
+        used = None
+        if usage and usage.get("total"):
+            total = usage["total"]
+            used = (f"{usage['rounds']} round(s)"
+                    + (f", {', '.join(usage['models'])}" if usage.get("models") else "")
+                    + (f", out {total['output']:,}" if "output" in total else "")
+                    + (f", {total['steps']:g} steps" if "steps" in total else ""))
+        tasks.append(line + "".join(f" | {part}" for part in (size, used) if part))
         if task["status"] == "returned":
             needs.append(f"verdict on {task['id']}: returned {since} ago")
         elif task["status"] == "blocked":

@@ -91,7 +91,8 @@ class FakeDsh:
             new = self.add(payload.get("sessionId") or f"session-new{len(self.sessions)}")
             return {"sessionId": new}
         if method == "session.models":
-            return {"current": {"provider": "deepseek-official", "model": "deepseek-flash"}}
+            return {"current": {"provider": "deepseek-official", "model": "deepseek-flash",
+                                "reasoningEffort": "high"}}
         if method == "session.rename":
             self.sessions[sid]["projections"]["values"]["title"] = payload["title"]
             return {"title": payload["title"], "seq": self.emit(sid, "session/title", {})["seq"]}
@@ -623,3 +624,104 @@ def test_summaries_already_mirrored_are_counted_once_then_incrementally(dsh, sta
     assert state.session_state(sid)["compaction"]["summaries"] == 2     # start/prune not counted
     _finish(dsh, state, sid, 30, summary=True)
     assert state.session_state(sid)["compaction"]["summaries"] == 3
+
+
+# ------------------------------------------------------- usage per dispatch
+
+def _usage(dsh, sid, uncached, cache, output, steps, llm_ms, pressure=100) -> None:
+    values = dsh.sessions[sid]["projections"]["values"]
+    values["tokenUsage"] = {"uncachedInputTokens": uncached, "cacheReadTokens": cache,
+                            "outputTokens": output}
+    values["sessionStats"] = {"turns": 1, "steps": steps, "llmMs": llm_ms, "toolMs": 0}
+    values["contextPressure"]["pressureTokens"] = pressure
+
+
+def test_a_dispatch_records_the_worker_and_the_turn_end_records_what_it_used(
+        dsh, state, monkeypatch) -> None:
+    sid = dsh.add("session-aaaa1111", preset="supervised")
+    tid = _task()
+    monkeypatch.setattr(st, "now_iso", lambda: st.ms_to_iso(dsh.clock))
+    _usage(dsh, sid, uncached=1000, cache=9000, output=500, steps=10, llm_ms=60_000, pressure=100)
+    call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": tid})
+    dispatch = state.tasks()["tasks"][tid]["dispatches"][0]
+    assert dispatch["model"] == "deepseek-official/deepseek-flash" and dispatch["effort"] == "high"
+    assert dispatch["permission"] == "supervised"
+    assert dispatch["usageBefore"]["output"] == 500 and "usage" not in dispatch
+
+    dsh.clock += 180_000
+    _usage(dsh, sid, uncached=1400, cache=29000, output=2500, steps=45, llm_ms=240_000,
+           pressure=300)
+    dsh.turn(sid, "work", "done")
+    state.observe(sid)
+
+    usage = state.tasks()["tasks"][tid]["dispatches"][0]["usage"]
+    assert usage["uncachedInput"] == 400 and usage["cacheRead"] == 20000
+    assert usage["output"] == 2000 and usage["steps"] == 35 and usage["llmMinutes"] == 3.0
+    assert usage["contextPct"] == [10.0, 30.0]
+    assert 3.0 <= usage["wallMinutes"] <= 3.5
+    shown = json.loads(text(call("dsh_tasks", {"action": "show", "id": tid})))
+    assert shown["usage"]["rounds"] == 1 and shown["usage"]["models"] == [
+        "deepseek-official/deepseek-flash/high"]
+    assert shown["usage"]["total"]["output"] == 2000
+    line = next(t for t in brief_lines(state) if t.startswith(tid))
+    assert "1 round(s)" in line and "out 2,000" in line and "35 steps" in line
+
+
+def brief_lines(state) -> list[str]:
+    from dsh_workers_mcp import brief
+    return brief.build(state)["openTasks"]
+
+
+def test_fields_dsh_does_not_provide_are_omitted_not_invented(dsh, state, monkeypatch) -> None:
+    sid = dsh.add("session-aaaa1111")
+    dsh.sessions[sid]["projections"]["values"].pop("sessionStats")   # dsh reports no stats
+    tid = _task()
+
+    def models_down(method, payload=None, base="", timeout=0):
+        if method == "session.models":
+            raise dshctl.RpcError("no models")
+        return dsh.rpc(method, payload, base, timeout)
+    monkeypatch.setattr(dshctl, "rpc", models_down)
+    call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": tid})
+    dispatch = state.tasks()["tasks"][tid]["dispatches"][0]
+    assert "model" not in dispatch and "effort" not in dispatch
+    assert set(dispatch["usageBefore"]) == {"contextPct"}            # no tokens, no stats
+
+    dsh.turn(sid, "work", "done")
+    state.observe(sid)
+    usage = state.tasks()["tasks"][tid]["dispatches"][0]["usage"]
+    assert "output" not in usage and "steps" not in usage and "llmMinutes" not in usage
+
+
+def test_rounds_count_dispatches_and_the_report_groups_by_model(dsh, state) -> None:
+    flash = dsh.add("session-aaaa1111")
+    other = dsh.add("session-bbbb2222")
+    dsh.sessions[other]["projections"]["values"]  # same fake models; label them apart below
+    t1, t2, t3 = _task(), _task(), _task()
+    for tid, sid in ((t1, flash), (t2, flash), (t3, other)):
+        call("dsh_task", {"session": sid[8:], "prompt": "go", "task_id": tid})
+        dsh.turn(sid, "work", "done")
+        state.observe(sid)
+    call("dsh_tasks", {"action": "update", "id": t1, "status": "rejected"})
+    call("dsh_task", {"session": "aaaa1111", "prompt": "again", "task_id": t1})   # rework
+    dsh.turn(flash, "again", "done")
+    state.observe(flash)
+    call("dsh_tasks", {"action": "update", "id": t3, "status": "merged"})
+    # label the third task's first dispatch as another model
+    data = state.tasks()
+    data["tasks"][t3]["dispatches"][0].update(model="other/strong", effort="max")
+    state._save_tasks(data)
+
+    report = json.loads(text(call("dsh_tasks", {"action": "report"})))
+    assert "money" in report["note"]
+    flash_group = report["models"]["deepseek-official/deepseek-flash/high"]
+    assert flash_group["tasks"] == 2 and flash_group["rounds"] == 3
+    assert flash_group["roundsPerTask"] == 1.5
+    assert report["models"]["other/strong/max"]["byStatus"] == {"merged": 1}
+    assert {r["id"]: r["rounds"] for r in report["tasks"]} == {t1: 2, t2: 1, t3: 1}
+
+
+def test_usage_delta_ignores_resets_and_missing_totals() -> None:
+    assert st.usage_delta(None, {"output": 5}) == {}
+    assert st.usage_delta({"output": 10, "steps": 3}, {"output": 4, "steps": 9}) == {"steps": 6}
+    assert st.usage_delta({"output": 1}, {"steps": 9}) == {}

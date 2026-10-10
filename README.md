@@ -177,6 +177,13 @@ the other:
   scripts show as `opaque`, and a failing run behind `| tail` is recognised from
   its output, since the pipeline hides the exit status. The git section is the
   reliable record of what changed, whatever command did it.
+- **Each dispatch records what it used.** With `task_id`, `dsh_task` stores the
+  worker's model, reasoning effort and permission on the task, and the turn end
+  stores the dispatch's tokens, steps, wall minutes and context change, as dsh
+  reports them (a field dsh does not give is omitted, not estimated).
+  `dsh_tasks show` adds a rollup; `dsh_tasks action=report` groups tasks by model
+  and effort with rounds per task. It reports work, not money: prices change, so
+  look them up on the provider's pricing page.
 - **Writes answer briefly; `show` has everything.** `dsh_tasks` add/update and
   `dsh_roster` adopt/note/set return a short acknowledgement (id, status, owner,
   branch, note count; for a worker, role, retired, last note), not the whole
@@ -219,7 +226,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-254 tests, no live server needed. They cover the places where being wrong is
+258 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

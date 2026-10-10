@@ -419,6 +419,7 @@ class State:
             "mirroredSeq": synced["lastSeq"],
         })
         state["compaction"] = self._track_compaction(session_id, prev, state, synced["new"])
+        state["usage"] = usage_snapshot(summary)
         if blocked:
             state["blocked"] = {"at": now_iso(), "pending": [
                 {k: item.get(k) for k in ("kind", "rpcId", "toolName", "reason")
@@ -551,7 +552,8 @@ class State:
                 f"dsh_tasks action=update owner=... first")
 
     def record_dispatch(self, task_id: str, session_id: str, prompt: str,
-                        mode: str, seq_before: int | None) -> dict:
+                        mode: str, seq_before: int | None,
+                        facts: dict | None = None) -> dict:
         # Where the worktree stands now, so the return can say what changed. Taken
         # outside the lock: it runs git.
         known = self.tasks()["tasks"].get(task_id) or {}
@@ -566,6 +568,7 @@ class State:
                 "seqBefore": seq_before, "prompt": prompt[:PREVIEW_CHARS],
                 **({"promptTruncated": True} if len(prompt) > PREVIEW_CHARS else {}),
                 **({"gitBefore": git_before} if git_before else {}),
+                **(facts or {}),
             })
             if task["status"] == "rejected":
                 task["history"].append({"at": stamp, "status": "open", "by": "server",
@@ -604,6 +607,12 @@ class State:
             if end.get("seq", -1) > (last.get("seqBefore") if last.get("seqBefore")
                                      is not None else -1) and not blocked:
                 last["turnEnd"] = end
+                usage = usage_delta(last.get("usageBefore"), state.get("usage"))
+                wall = _minutes_between(last.get("at"), end.get("at"))
+                if wall is not None:
+                    usage["wallMinutes"] = wall
+                if usage:
+                    last["usage"] = usage
                 new_status = "returned"
             elif blocked:
                 new_status = "blocked"
@@ -704,7 +713,8 @@ def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | li
 
     if tool == "dsh_task" and arguments.get("task_id") and isinstance(result, dict):
         state.record_dispatch(arguments["task_id"], session_id, arguments.get("prompt", ""),
-                              arguments.get("mode", "queue"), result.get("seqBefore"))
+                              arguments.get("mode", "queue"), result.get("seqBefore"),
+                              facts=dispatch_facts(state, session_id))
 
     blocked = result.get("pending") if isinstance(result, dict) and result.get("blocked") else None
     state.observe(session_id, blocked=blocked,
@@ -847,6 +857,124 @@ def retire_warning(state: State, session_id: str) -> str | None:
             "retired=false. If it was another reason, record it with action=note.")
 
 
+# ------------------------------------------------------------------- usage
+# What a task cost in work, from the numbers dsh reports. Fields dsh does not
+# give are left out, never estimated, and no money is computed: prices change
+# and belong to the provider.
+
+_TOKEN_FIELDS = {"uncachedInputTokens": "uncachedInput", "cacheReadTokens": "cacheRead",
+                 "outputTokens": "output"}
+_STAT_FIELDS = {"steps": "steps", "llmMs": "llmMs", "toolMs": "toolMs"}
+
+
+def usage_snapshot(summary: dict) -> dict:
+    """Cumulative totals for a session now, from its projections. Omits what is absent."""
+    values = dshctl.projections(summary)
+    out: dict = {}
+    for source, fields in ((values.get("tokenUsage") or {}, _TOKEN_FIELDS),
+                           (values.get("sessionStats") or {}, _STAT_FIELDS)):
+        out.update({name: source[key] for key, name in fields.items()
+                    if isinstance(source.get(key), (int, float))})
+    pressure = values.get("contextPressure") or {}
+    if pressure.get("contextWindow") and pressure.get("pressureTokens") is not None:
+        out["contextPct"] = round(pressure["pressureTokens"] / pressure["contextWindow"] * 100, 1)
+    return out
+
+
+def usage_delta(before: dict | None, after: dict | None) -> dict:
+    """What a dispatch used: the growth of each total both snapshots have."""
+    if not before or not after:
+        return {}
+    out: dict = {}
+    for key in (*_TOKEN_FIELDS.values(), *_STAT_FIELDS.values()):
+        if key in before and key in after and after[key] >= before[key]:
+            out[key] = after[key] - before[key]
+    if "llmMs" in out:
+        out["llmMinutes"] = round(out.pop("llmMs") / 60000, 1)
+    if "toolMs" in out:
+        out["toolMinutes"] = round(out.pop("toolMs") / 60000, 1)
+    if "contextPct" in before and "contextPct" in after:
+        out["contextPct"] = [before["contextPct"], after["contextPct"]]
+    return out
+
+
+def _minutes_between(start: str | None, end: str | None) -> float | None:
+    try:
+        seconds = (_dt.datetime.fromisoformat(end) - _dt.datetime.fromisoformat(start)).total_seconds()
+    except (TypeError, ValueError):
+        return None
+    return round(max(seconds, 0) / 60, 1)
+
+
+def dispatch_facts(state: "State", session_id: str) -> dict:
+    """The worker's model, effort, permission and usage totals at the moment of dispatch."""
+    facts: dict = {}
+    with contextlib.suppress(dshctl.RpcError):
+        current = dshctl.rpc("session.models", {"sessionId": session_id},
+                             base=state.base).get("current") or {}
+        if current.get("model"):
+            facts["model"] = (f"{current['provider']}/{current['model']}"
+                              if current.get("provider") else current["model"])
+        if current.get("reasoningEffort"):
+            facts["effort"] = current["reasoningEffort"]
+    with contextlib.suppress(dshctl.RpcError):
+        summary = dshctl.find_session(session_id, state.base)
+        permission = (dshctl.projections(summary).get("permissions") or {}).get("currentValue")
+        if permission:
+            facts["permission"] = permission
+        snapshot = usage_snapshot(summary)
+        if snapshot:
+            facts["usageBefore"] = snapshot
+    return facts
+
+
+def task_usage(task: dict) -> dict | None:
+    """Rounds, models and summed usage over a task's dispatches (None before any dispatch)."""
+    dispatches = task.get("dispatches") or []
+    if not dispatches:
+        return None
+    totals: dict = {}
+    for dispatch in dispatches:
+        for key, value in (dispatch.get("usage") or {}).items():
+            if isinstance(value, (int, float)):
+                totals[key] = round(totals.get(key, 0) + value, 1)
+    models = []
+    for dispatch in dispatches:
+        label = "/".join(x for x in (dispatch.get("model"), dispatch.get("effort")) if x)
+        if label and label not in models:
+            models.append(label)
+    return {"rounds": len(dispatches), **({"models": models} if models else {}),
+            **({"total": totals} if totals else {})}
+
+
+def usage_report(state: "State") -> dict:
+    """Tasks grouped by the model and effort of their first dispatch, with rounds per task."""
+    groups: dict[str, dict] = {}
+    rows = []
+    for task in sorted(state.tasks()["tasks"].values(), key=lambda t: t["id"]):
+        usage = task_usage(task)
+        if not usage:
+            continue
+        first = task["dispatches"][0]
+        label = "/".join(x for x in (first.get("model"), first.get("effort")) if x) or "unrecorded"
+        rows.append({"id": task["id"], "status": task["status"], "model": label,
+                     "rounds": usage["rounds"], **({"total": usage["total"]} if "total" in usage else {})})
+        group = groups.setdefault(label, {"tasks": 0, "rounds": 0, "byStatus": {}, "total": {}})
+        group["tasks"] += 1
+        group["rounds"] += usage["rounds"]
+        group["byStatus"][task["status"]] = group["byStatus"].get(task["status"], 0) + 1
+        for key, value in usage.get("total", {}).items():
+            if key != "contextPct":
+                group["total"][key] = round(group["total"].get(key, 0) + value, 1)
+    for group in groups.values():
+        group["roundsPerTask"] = round(group["rounds"] / group["tasks"], 2)
+        if not group["total"]:
+            del group["total"]
+    return {"groupedBy": "model and effort of each task's first dispatch",
+            "note": "work done, not money: look prices up with the provider",
+            "models": groups, "tasks": rows}
+
+
 def task_ack(task: dict) -> dict:
     """What a write returns: enough to confirm it, not the whole record
     (`dsh_tasks action=show` has the history). The caller just wrote the rest."""
@@ -887,6 +1015,8 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
                                        branch=arguments.get("branch"),
                                        worktree=arguments.get("worktree"),
                                        task_id=arguments.get("id")))
+    if action == "report":
+        return usage_report(state)
     task_id = arguments.get("id")
     if not task_id:
         raise dshctl.RpcError(f"action {action!r} needs an id")
@@ -894,7 +1024,8 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
         task = state.tasks()["tasks"].get(task_id)
         if task is None:
             raise dshctl.RpcError(f"no task {task_id!r}")
-        return task
+        usage = task_usage(task)
+        return {**task, "usage": usage} if usage else task
     if action == "update":
         owner = arguments.get("owner")
         if owner:

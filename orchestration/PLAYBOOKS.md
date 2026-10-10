@@ -135,9 +135,13 @@ Mechanics:
   largest model; debugging, design and load-bearing shared code may. `PROJECT.md`
   lists the models on offer, their prices, and which choices are yours. A
   switch changes only that worker; the server restores the global default.
-  Record the choice in the task note, switch back when the task ends, and
-  note in `FRICTION.md` whether the dearer choice saved rounds: that record
-  is the only way to know whether it pays.
+  The server records the model, effort and permission at each dispatch, and
+  at the turn end the work that dispatch took (tokens, steps, wall minutes,
+  context change: only what dsh reports) on the task. `dsh_tasks action=report`
+  groups tasks by model and effort with rounds per task, so whether the dearer
+  choice saved rounds is read from data. It measures work, not money; look
+  prices up on the provider's pricing page. Switch back when the task ends, and
+  note in `FRICTION.md` what the numbers do not show (quality, discipline).
 
 ## 4. Waiting and unblocking
 

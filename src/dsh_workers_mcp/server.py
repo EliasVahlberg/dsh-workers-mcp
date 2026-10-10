@@ -473,12 +473,18 @@ def _tools() -> list[dict]:
                 "without a merge: a decision taken, research delivered), or back to "
                 "open, plus notes, owner, branch, "
                 "worktree, acceptance, depends_on. 'list' hides closed tasks unless "
-                "include_closed or a status filter is given."
+                "include_closed or a status filter is given. At each dispatch the server "
+                "records the worker's model, effort and permission, and at the turn end "
+                "the usage of that dispatch (tokens, steps, wall minutes, context change; "
+                "only what dsh reports). 'show' returns the record plus a `usage` rollup "
+                "(rounds, models, totals). 'report' groups tasks by the model and effort "
+                "of their first dispatch with rounds per task: work, not money."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["list", "show", "add", "update"],
+                    "action": {"type": "string",
+                               "enum": ["list", "show", "add", "update", "report"],
                                "default": "list"},
                     "id": {"type": "string"},
                     "title": {"type": "string"},
