@@ -228,3 +228,48 @@ def test_a_parked_note_shows_on_the_task_line_until_a_later_note_replaces_it(sta
     plain = task(state, "no parked note", "dispatched", A)
     state.update_task(plain, note="the worker asked about naming")
     assert "|" not in line_of(plain).split("(owner")[1]
+
+
+# ------------------------------------------------- the steps that build() joins
+
+@pytest.mark.parametrize("auto, notes, expected", [
+    ({"missing": True, "running": True}, {}, "bbbb2222: session no longer exists in dsh"),
+    ({"compactionStalled": "stuck at 90%"}, {}, "bbbb2222: compaction looks stalled: stuck at 90%"),
+    ({"running": False}, {"role": "reviewer"}, "work for bbbb2222 (reviewer): idle, no task"),
+    ({"running": False, "currentTask": "T-1"}, {}, None),
+    ({"running": True}, {}, None),
+])
+def test_worker_need_names_the_first_thing_wrong(auto, notes, expected) -> None:
+    assert brief._worker_need(B, {"auto": auto, "notes": notes}) == expected
+
+
+@pytest.mark.parametrize("status, expected", [
+    ("returned", "verdict on T-7: returned 2h ago"),
+    ("blocked", "answer for T-7: blocked 2h"),
+    ("in-review", "T-7 has been in-review for 2h: finish or hand back"),
+    ("dispatched", None), ("open", None),
+])
+def test_task_need_depends_on_the_status(status, expected) -> None:
+    assert brief._task_need({"id": "T-7", "status": status}, "2h") == expected
+
+
+def test_pending_need_names_the_tool_or_the_kind() -> None:
+    assert brief._pending_need({"sessionId": A, "toolName": "bash", "rpcId": "r1"}) == \
+        "pending from aaaa1111: bash (rpc_id r1)"
+    assert brief._pending_need({"sessionId": A, "kind": "question/requested", "rpcId": "r2"}) == \
+        "pending from aaaa1111: question (rpc_id r2)"
+
+
+def test_usage_text_is_absent_without_usage_and_lists_what_dsh_gave() -> None:
+    assert brief._usage_text({"dispatches": []}) is None
+    task = {"dispatches": [{"model": "p/m", "usage": {"output": 12345, "steps": 3.0}}]}
+    text = brief._usage_text(task)
+    assert text is not None and text.startswith("1 round(s)") and "out 12,345" in text
+
+
+def test_task_line_joins_the_title_owner_size_and_parked_note(state) -> None:
+    tid = task(state, "x" * 90, "dispatched", A)
+    state.update_task(tid, note="PARKED on a merge. Resume: rebase.")
+    line = brief._task_line(state.tasks()["tasks"][tid], "3h")
+    assert line.startswith(f"{tid} [dispatched 3h] " + "x" * brief.TITLE_CHARS + " (owner aaaa1111)")
+    assert line.endswith("| PARKED on a merge. Resume: rebase.")

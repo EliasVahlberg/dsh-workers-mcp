@@ -78,72 +78,102 @@ def _size(task: dict) -> str | None:
     return ", ".join(p for p in parts if p)
 
 
-def build(state: st.State, *, now: _dt.datetime | None = None,
-          pending: list[dict] | None = None, dsh: str = "not checked") -> dict:
-    now = now or _dt.datetime.now().astimezone()
-    needs: list[str] = []
+def _last_turn_text(auto: dict, now: _dt.datetime) -> str:
+    end = auto.get("lastTurnEnd") or {}
+    kind = end.get("kind")
+    return f"last turn {kind or '-'}" + (f" {age(end.get('at'), now)} ago" if kind else "")
 
-    # ---- workers
-    workers, active = [], {}
+
+def _worker_line(state: st.State, session_id: str, worker: dict, now: _dt.datetime) -> str:
+    auto, notes = worker["auto"], worker["notes"]
+    pct = (state.session_state(session_id).get("context") or {}).get("usedPct")
+    status = "MISSING" if auto.get("missing") else "running" if auto.get("running") else "idle"
+    return " | ".join([
+        f"{auto.get('short') or _short(session_id)} {_role(notes)}",
+        status, f"task {auto.get('currentTask') or '-'}", _last_turn_text(auto, now),
+        *([f"ctx {pct:.0f}%"] if pct is not None else [])])
+
+
+def _worker_need(session_id: str, worker: dict) -> str | None:
+    auto = worker["auto"]
+    if auto.get("missing"):
+        return f"{_short(session_id)}: session no longer exists in dsh"
+    if auto.get("compactionStalled"):
+        return f"{_short(session_id)}: compaction looks stalled: {auto['compactionStalled']}"
+    if not auto.get("running") and not auto.get("currentTask"):
+        return f"work for {_short(session_id)} ({_role(worker['notes'])}): idle, no task"
+    return None
+
+
+def _workers_section(state: st.State, now: _dt.datetime) -> tuple[list[str], list[str]]:
+    lines: list[str] = []
+    needs: list[str] = []
     for session_id, worker in state.roster()["workers"].items():
         if worker["notes"].get("retired"):
             continue
-        active[session_id] = worker
-        auto, notes = worker["auto"], worker["notes"]
-        context = state.session_state(session_id).get("context") or {}
-        pct = context.get("usedPct")
-        status = "MISSING" if auto.get("missing") else "running" if auto.get("running") else "idle"
-        end = (auto.get("lastTurnEnd") or {}).get("kind")
-        workers.append(" | ".join([
-            f"{auto.get('short') or _short(session_id)} {_role(notes)}",
-            status, f"task {auto.get('currentTask') or '-'}",
-            f"last turn {end or '-'}" + (f" {age((auto.get('lastTurnEnd') or {}).get('at'), now)} ago"
-                                        if end else ""),
-            *([f"ctx {pct:.0f}%"] if pct is not None else [])]))
-        if auto.get("missing"):
-            needs.append(f"{_short(session_id)}: session no longer exists in dsh")
-        elif auto.get("compactionStalled"):
-            needs.append(f"{_short(session_id)}: compaction looks stalled: "
-                         f"{auto['compactionStalled']}")
-        elif not auto.get("running") and not auto.get("currentTask"):
-            needs.append(f"work for {_short(session_id)} ({_role(notes)}): "
-                         f"idle, no task")
+        lines.append(_worker_line(state, session_id, worker, now))
+        need = _worker_need(session_id, worker)
+        if need:
+            needs.append(need)
+    return lines, needs
 
-    # ---- tasks
-    tasks = []
+
+def _usage_text(task: dict) -> str | None:
+    usage = st.task_usage(task)
+    if not (usage and usage.get("total")):
+        return None
+    total = usage["total"]
+    return (f"{usage['rounds']} round(s)"
+            + (f", {', '.join(usage['models'])}" if usage.get("models") else "")
+            + (f", out {total['output']:,}" if "output" in total else "")
+            + (f", {total['steps']:g} steps" if "steps" in total else ""))
+
+
+def _task_line(task: dict, since: str) -> str:
+    line = (f"{task['id']} [{task['status']} {since}] {task['title'][:TITLE_CHARS]} "
+            f"(owner {_short(task.get('owner'))})")
+    size = _size(task) if task["status"] in WORKING else None
+    notes = task.get("notes") or []
+    parked = notes[-1]["text"][:PARKED_CHARS] if notes and notes[-1]["text"].startswith(PARKED) else None
+    return line + "".join(f" | {part}" for part in (size, _usage_text(task), parked) if part)
+
+
+def _task_need(task: dict, since: str) -> str | None:
+    if task["status"] == "returned":
+        return f"verdict on {task['id']}: returned {since} ago"
+    if task["status"] == "blocked":
+        return f"answer for {task['id']}: blocked {since}"
+    if task["status"] == "in-review":
+        return f"{task['id']} has been in-review for {since}: finish or hand back"
+    return None
+
+
+def _tasks_section(state: st.State, now: _dt.datetime) -> tuple[list[str], list[str]]:
+    lines: list[str] = []
+    needs: list[str] = []
     open_tasks = [t for t in state.tasks()["tasks"].values() if t["status"] not in st.CLOSED]
     for task in sorted(open_tasks, key=lambda t: t["id"]):
         since = age(task.get("updated"), now)
-        line = (f"{task['id']} [{task['status']} {since}] {task['title'][:TITLE_CHARS]} "
-                f"(owner {_short(task.get('owner'))})")
-        size = _size(task) if task["status"] in WORKING else None
-        usage = st.task_usage(task)
-        used = None
-        if usage and usage.get("total"):
-            total = usage["total"]
-            used = (f"{usage['rounds']} round(s)"
-                    + (f", {', '.join(usage['models'])}" if usage.get("models") else "")
-                    + (f", out {total['output']:,}" if "output" in total else "")
-                    + (f", {total['steps']:g} steps" if "steps" in total else ""))
-        tasks.append(line + "".join(f" | {part}" for part in (size, used) if part))
-        notes = task.get("notes") or []
-        parked = notes[-1]["text"] if notes and notes[-1]["text"].startswith(PARKED) else None
-        if parked:
-            tasks[-1] += f" | {parked[:PARKED_CHARS]}"
-        if task["status"] == "returned":
-            needs.append(f"verdict on {task['id']}: returned {since} ago")
-        elif task["status"] == "blocked":
-            needs.append(f"answer for {task['id']}: blocked {since}")
-        elif task["status"] == "in-review":
-            needs.append(f"{task['id']} has been in-review for {since}: finish or hand back")
+        lines.append(_task_line(task, since))
+        need = _task_need(task, since)
+        if need:
+            needs.append(need)
+    return lines, needs
 
-    # ---- what dsh is waiting on
-    for item in pending or []:
-        who = _short(item.get("sessionId"))
-        what = item.get("toolName") or ("question" if item.get("kind") == "question/requested"
-                                        else item.get("kind"))
-        needs.append(f"pending from {who}: {what} (rpc_id {item.get('rpcId')})")
 
+def _pending_need(item: dict) -> str:
+    who = _short(item.get("sessionId"))
+    what = item.get("toolName") or ("question" if item.get("kind") == "question/requested"
+                                    else item.get("kind"))
+    return f"pending from {who}: {what} (rpc_id {item.get('rpcId')})"
+
+
+def build(state: st.State, *, now: _dt.datetime | None = None,
+          pending: list[dict] | None = None, dsh: str = "not checked") -> dict:
+    now = now or _dt.datetime.now().astimezone()
+    workers, worker_needs = _workers_section(state, now)
+    tasks, task_needs = _tasks_section(state, now)
+    needs = worker_needs + task_needs + [_pending_need(item) for item in pending or []]
     return {"dsh": dsh, "needsAction": needs, "workers": workers, "openTasks": tasks}
 
 
