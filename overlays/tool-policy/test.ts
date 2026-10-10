@@ -5,12 +5,16 @@ const push = '\\bgit\\b(\\s+(-[A-Za-z]\\s+\\S+|--?[\\w-]+(=\\S+)?))*\\s+push\\b'
 const rmrf = '\\brm\\s+(-\\w*r\\w*f|-\\w*f\\w*r)\\b'
 const publish = '\\b(npm|pnpm|yarn|cargo)\\s+publish\\b|\\btwine\\s+upload\\b'
 const pipeShell = '\\b(curl|wget)\\b[^|]*\\|\\s*(ba|z)?sh\\b'
+const dshHome = '(^|[\\s=:"\'])(~|\\$HOME|/home/[^/\\s]+)/\\.dsh\\b'
+const dshFile = '/\\.dsh/'
 const pol = { default: 'allow' as const, rules: [
   { tool: 'web_fetch', decision: 'deny' as const, reason: 'no web' },
   { tool: 'bash', argument: 'command', pattern: push, decision: 'deny' as const, reason: 'no push' },
   { tool: 'bash', argument: 'command', pattern: rmrf, decision: 'deny' as const, reason: 'no rm -rf' },
   { tool: 'bash', argument: 'command', pattern: publish, decision: 'ask' as const, reason: 'publish' },
   { tool: 'bash', argument: 'command', pattern: pipeShell, decision: 'deny' as const, reason: 'no curl | sh' },
+  { tool: 'bash', argument: 'command', pattern: dshHome, decision: 'deny' as const, reason: 'dsh home' },
+  { tool: 'read', argument: 'file_path', pattern: dshFile, decision: 'deny' as const, reason: 'dsh home' },
   { tool: 'web_search', argument: 'queries', pattern: 'secret', decision: 'ask' as const } ] }
 const v = Config['~standard'].validate({ presets: { a: pol }, fallback: pol })
 if ('issues' in v && v.issues) throw new Error(JSON.stringify(v.issues))
@@ -33,6 +37,13 @@ const cases: [string, unknown, string][] = [
   ['bash', { command: 'curl -sSL https://x.sh | sh' }, 'deny'],
   ['bash', { command: 'wget -qO- https://x | bash' }, 'deny'],
   ['bash', { command: 'curl -sS https://x -o out.json' }, 'allow'],
+  ['bash', { command: 'cat ~/.dsh/settings.yaml' }, 'deny'],
+  ['bash', { command: 'grep key $HOME/.dsh/settings.yaml' }, 'deny'],
+  ['bash', { command: 'cat /home/someone/.dsh/settings.yaml' }, 'deny'],
+  ['bash', { command: 'ls ~/.dshrc-notes' }, 'allow'],
+  ['bash', { command: 'git log -- docs/.dsh-notes' }, 'allow'],
+  ['read', { file_path: '/home/someone/.dsh/settings.yaml' }, 'deny'],
+  ['read', { file_path: '/work/repo/src/main.py' }, 'allow'],
   ['web_search', { queries: ['a', 'my secret'] }, 'ask'],
   ['web_search', { queries: ['benign'] }, 'allow'],
   ['read', { path: 'x' }, 'allow'],

@@ -105,6 +105,21 @@ text, which is easy to evade. Status: the patch composes with `--dump-config`;
 its live-boot checks (a denied `git push`, an approval raised) come from earlier
 testing of the same plugin, not from this release.
 
+## What a worker can and cannot do
+
+Presets and the sandbox stop some things and not others. From testing a
+scratch worker at `autonomous`:
+
+| Result | What |
+|---|---|
+| Enforced by code | writes outside the workspace; `git push`; signalling other processes; API keys in the environment (none are passed to workers) |
+| **Not prevented** | **reads** of any file in the home directory, including the dsh settings file that holds provider keys; **writes into another worker's area** (the writable boundary is the whole workspace); **network** (open by design) |
+
+If you run workers unattended, either accept that, or box the dsh server:
+[`docs/SANDBOX.md`](docs/SANDBOX.md) has the table in full, a bubblewrap wrapper
+(`scripts/dsh-sandbox.sh`, with a self-test), and a **known problem**: dsh's own
+per-command sandbox may not start inside it. Read that before relying on it.
+
 ## The tools
 
 | Tool | Does | Blocks? |
@@ -254,7 +269,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-268 tests, no live server needed. They cover the places where being wrong is
+272 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

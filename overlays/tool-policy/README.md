@@ -95,7 +95,8 @@ rules for what your project cannot afford. Some that fit most projects:
   reason: do not pipe a download into a shell
 ```
 
-(These three are exercised in `test.ts`.) A bad regex or a malformed rule fails
+(These three are exercised in `test.ts`.) A fourth, for the dsh settings
+directory, is in [`docs/SANDBOX.md`](../../docs/SANDBOX.md), with its cases in `test.ts`. A bad regex or a malformed rule fails
 the boot, not the first tool call, because the plugin validates its config at
 load. Add a case to `test.ts` for each rule you add; it needs only `node`:
 `node test.ts`.
