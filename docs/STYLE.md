@@ -23,22 +23,20 @@ makes a sentence wrong or unclear, keep the sentence and break the rule.
    time. Do not alternate "worker", "agent" and "session" for the same thing.
 6. **Say the noun.** Do not drop the subject or the object. Do not write "it" or
    "this" when the reader must look back to find what it means.
-7. **No semicolons.** Use two sentences. Avoid em dashes. A comma, a colon or a
-   new sentence does the same job.
+7. **No semicolons.** Use two sentences. A comma, a colon or a new sentence does
+   the same job as an em dash.
 8. **Say what to do and what to check.** An instruction names the action and the
    result a reader can check. Write "the test passes", not "it works well".
-9. **No claims of quality.** Do not write "robust", "seamless", "powerful" or
-   "simple". Give the measurement, or remove the word.
+9. **No claims of quality.** Do not describe text or code with quality
+   adjectives. Give the measurement, or remove the word.
 10. **Keep hedges when they are true.** "May have failed" and "failed" are different
     statements. Do not remove a hedge to save words. Do not add one to sound
     careful.
 11. **Lists for sequences.** Use a numbered list for three or more steps. Use a
     bullet list for three or more parallel items. Use prose for reasons.
 12. **One topic per paragraph.** At most six sentences. Start with the point.
-
-Also: do not repeat a section's point in a closing sentence. Do not start an
-answer with praise or agreement. Use "must" for a rule, "should" for advice and
-"may" for a choice, and use each word only in that sense.
+13. **Modal verbs have one sense each.** Use "must" for a rule, "should" for advice
+    and "may" for a choice.
 
 ## Glossary
 
