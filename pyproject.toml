@@ -30,6 +30,7 @@ dependencies = []
 [project.scripts]
 dsh-workers-mcp = "dsh_workers_mcp.server:main"
 dshctl = "dsh_workers_mcp.dshctl:main"
+dsh-wake = "dsh_workers_mcp.wake:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
