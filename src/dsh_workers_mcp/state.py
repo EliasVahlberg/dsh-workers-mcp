@@ -672,14 +672,14 @@ def cmd_roster(state: State, arguments: dict) -> dict:
     if action == "adopt":
         state.adopt(session_id, how="adopt", role=arguments.get("role"))
         state.observe(session_id)
-        return state.roster()["workers"][session_id]
+        return worker_ack(state.roster()["workers"][session_id])
     if action == "note":
         if not arguments.get("text"):
             raise dshctl.RpcError("note needs text")
-        return state.add_note(session_id, arguments["text"])
+        return worker_ack(state.add_note(session_id, arguments["text"]))
     if action == "set":
-        result = state.set_judgment(session_id, role=arguments.get("role"),
-                                    retired=arguments.get("retired"))
+        result = worker_ack(state.set_judgment(session_id, role=arguments.get("role"),
+                                               retired=arguments.get("retired")))
         if arguments.get("retired"):
             warning = retire_warning(state, session_id)
             if warning:
@@ -710,6 +710,24 @@ def retire_warning(state: State, session_id: str) -> str | None:
             "retired=false. If it was another reason, record it with action=note.")
 
 
+def task_ack(task: dict) -> dict:
+    """What a write returns: enough to confirm it, not the whole record
+    (`dsh_tasks action=show` has the history). The caller just wrote the rest."""
+    return {"id": task["id"], "title": task["title"], "status": task["status"],
+            "owner": (task.get("owner") or "-").removeprefix("session-")[:8],
+            "branch": task.get("branch"), "updated": task["updated"],
+            "notes": len(task.get("notes", []))}
+
+
+def worker_ack(worker: dict) -> dict:
+    """The same for roster writes: `dsh_roster action=show session=…` has the rest."""
+    auto, notes = worker["auto"], worker["notes"]
+    log = notes.get("log", [])
+    return {"sessionId": auto.get("sessionId"), "short": auto.get("short"),
+            "role": notes.get("role"), "retired": bool(notes.get("retired")),
+            "notes": len(log), **({"lastNote": log[-1]["text"][:200]} if log else {})}
+
+
 def cmd_tasks(state: State, arguments: dict) -> dict:
     action = arguments.get("action", "list")
     if action == "list":
@@ -726,12 +744,12 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
         owner = arguments.get("owner")
         if owner:
             owner = dshctl.find_session(owner, state.base)["sessionId"]
-        return state.add_task(arguments.get("title", ""), owner=owner,
-                              acceptance=arguments.get("acceptance"),
-                              depends_on=arguments.get("depends_on"),
-                              branch=arguments.get("branch"),
-                              worktree=arguments.get("worktree"),
-                              task_id=arguments.get("id"))
+        return task_ack(state.add_task(arguments.get("title", ""), owner=owner,
+                                       acceptance=arguments.get("acceptance"),
+                                       depends_on=arguments.get("depends_on"),
+                                       branch=arguments.get("branch"),
+                                       worktree=arguments.get("worktree"),
+                                       task_id=arguments.get("id")))
     task_id = arguments.get("id")
     if not task_id:
         raise dshctl.RpcError(f"action {action!r} needs an id")
@@ -744,11 +762,11 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
         owner = arguments.get("owner")
         if owner:
             owner = dshctl.find_session(owner, state.base)["sessionId"]
-        return state.update_task(
+        return task_ack(state.update_task(
             task_id, status=arguments.get("status"), note=arguments.get("note"),
             title=arguments.get("title"), owner=owner,
             acceptance=arguments.get("acceptance"),
             dependsOn=arguments.get("depends_on"), branch=arguments.get("branch"),
-            worktree=arguments.get("worktree"))
+            worktree=arguments.get("worktree")))
     raise dshctl.RpcError(f"unknown tasks action {action!r}")
 

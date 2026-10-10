@@ -355,6 +355,36 @@ def test_rejected_task_goes_back_to_its_worker_by_dispatching_it(dsh, state) -> 
     assert len(task["dispatches"]) == 2
 
 
+def test_task_writes_return_a_short_acknowledgement_and_show_the_full_record(dsh, state) -> None:
+    added = text(call("dsh_tasks", {"action": "add", "title": "build the bench",
+                                    "acceptance": "x" * 3000, "branch": "wt/bench"}))
+    tid = json.loads(added)["id"]
+    for note in range(30):
+        call("dsh_tasks", {"action": "update", "id": tid, "note": f"round {note} " + "y" * 200})
+    updated = text(call("dsh_tasks", {"action": "update", "id": tid, "status": "returned",
+                                      "note": "done"}))
+    assert len(added) < 500 and len(updated) < 500
+    ack = json.loads(updated)
+    assert ack["status"] == "returned" and ack["notes"] == 31 and ack["branch"] == "wt/bench"
+    assert "history" not in ack and "acceptance" not in ack
+    shown = json.loads(text(call("dsh_tasks", {"action": "show", "id": tid})))
+    assert len(shown["notes"]) == 31 and shown["history"][-1]["status"] == "returned"
+
+
+def test_roster_writes_return_a_short_acknowledgement(dsh, state) -> None:
+    dsh.add("session-aaaa1111")
+    call("dsh_roster", {"action": "adopt", "session": "aaaa1111", "role": "reviewer"})
+    for n in range(20):
+        noted = text(call("dsh_roster", {"action": "note", "session": "aaaa1111",
+                                         "text": f"note {n} " + "z" * 300}))
+    assert len(noted) < 600
+    ack = json.loads(noted)
+    assert ack["short"] == "aaaa1111" and ack["role"] == "reviewer" and ack["notes"] == 20
+    assert ack["lastNote"].startswith("note 19") and "auto" not in ack
+    full = json.loads(text(call("dsh_roster", {"action": "show", "session": "aaaa1111"})))
+    assert len(full["worker"]["notes"]["log"]) == 20
+
+
 def test_task_updates_are_validated(dsh, state) -> None:
     tid = _task()
     assert call("dsh_tasks", {"action": "update", "id": tid, "status": "finished"})["isError"]
@@ -362,7 +392,9 @@ def test_task_updates_are_validated(dsh, state) -> None:
     assert call("dsh_tasks", {"action": "add", "title": "  "})["isError"]
     updated = json.loads(text(call("dsh_tasks", {"action": "update", "id": tid,
                                                  "status": "in-review", "note": "tests pass"})))
-    assert updated["status"] == "in-review" and updated["notes"][0]["text"] == "tests pass"
+    assert updated["status"] == "in-review" and updated["notes"] == 1
+    shown = json.loads(text(call("dsh_tasks", {"action": "show", "id": tid})))
+    assert shown["notes"][0]["text"] == "tests pass"
     assert _task("second") == "T-002"
 
 

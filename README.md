@@ -162,6 +162,12 @@ the other:
   by another worker refuses the dispatch). The server then moves it
   `dispatched → blocked → returned` as it observes the worker. `in-review`,
   `merged`, `rejected`, `abandoned` are the orchestrator's calls.
+- **Writes answer briefly; `show` has everything.** `dsh_tasks` add/update and
+  `dsh_roster` adopt/note/set return a short acknowledgement (id, status, owner,
+  branch, note count; for a worker, role, retired, last note), not the whole
+  record. The caller just wrote it, and the record, with its history, would
+  otherwise sit in the lead's context on every call. `dsh_tasks action=show` and
+  `dsh_roster action=show session=…` return the full record.
 - **Only managed sessions are mirrored.** Inspecting a session with
   `dsh_status` does not start recording it.
 - **Cached state is "last observed".** Every snapshot carries `observedAt`;
@@ -198,7 +204,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-154 tests, no live server needed. They cover the places where being wrong is
+156 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable
