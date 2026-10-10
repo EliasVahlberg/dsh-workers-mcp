@@ -185,44 +185,70 @@ def _git_subcommand(args: list[str]) -> str | None:
     return None
 
 
+def _writes_sed(args: list[str]) -> bool:
+    return any(a == "--in-place" or a.startswith("--in-place=") or _SED_INPLACE.fullmatch(a)
+               for a in args)
+
+
+def _writes_perl(args: list[str]) -> bool:
+    return any(_PERL_INPLACE.fullmatch(a) for a in args)
+
+
+def _writes_find(args: list[str]) -> bool:
+    if "-delete" in args:
+        return True
+    if "-exec" not in args:
+        return False
+    after = args[args.index("-exec") + 1:]
+    return bool(after) and (PurePosixPath(after[0]).name in WRITE_VERBS or after[0] == "sed")
+
+
+def _writes_curl(args: list[str]) -> bool:
+    return any(_CURL_OUT.fullmatch(a) or a in ("--output", "--remote-name") for a in args)
+
+
+def _writes_tar(args: list[str]) -> bool:
+    return bool(args) and bool(re.fullmatch(r"-?[A-Za-z]*x[A-Za-z]*", args[0]))
+
+
+def _writes_git(args: list[str]) -> bool:
+    sub = _git_subcommand(args)
+    if sub == "stash":
+        rest = args[args.index("stash") + 1:]
+        return not (rest and rest[0] in ("list", "show"))
+    return sub in GIT_TREE_WRITES
+
+
+# Verbs whose arguments decide whether they write. A False answer is not final:
+# the command may still be a shell or an interpreter (perl), which can be opaque.
+_WRITE_CHECKS = {"sed": _writes_sed, "perl": _writes_perl, "find": _writes_find,
+                 "curl": _writes_curl, "tar": _writes_tar, "git": _writes_git}
+
+
+def _classify_xargs(args: list[str]) -> tuple[bool, bool]:
+    rest = [a for a in args if not a.startswith("-")]
+    return _classify(PurePosixPath(rest[0]).name, rest[1:], False) if rest else (False, False)
+
+
+def _classify_shell(args: list[str], heredoc: bool) -> tuple[bool, bool]:
+    if "-c" in args and args.index("-c") + 1 < len(args):
+        inner = analyze(args[args.index("-c") + 1])
+        return any(s["writes"] for s in inner), any(s["opaque"] for s in inner)
+    return False, heredoc or "-" in args
+
+
 def _classify(verb: str, args: list[str], heredoc: bool) -> tuple[bool, bool]:
     """(writes, opaque) for one simple command. `args` are unquoted."""
     if verb in WRITE_VERBS:
         return verb != "wget" or "--spider" not in args, False
-    if verb == "sed":
-        return any(a == "--in-place" or a.startswith("--in-place=")
-                   or _SED_INPLACE.fullmatch(a) for a in args), False
-    if verb == "perl" and any(_PERL_INPLACE.fullmatch(a) for a in args):
+    check = _WRITE_CHECKS.get(verb)
+    if check is not None and check(args):
         return True, False
-    if verb == "find":
-        if "-delete" in args:
-            return True, False
-        if "-exec" in args:
-            after = args[args.index("-exec") + 1:]
-            return bool(after) and (PurePosixPath(after[0]).name in WRITE_VERBS
-                                    or after[0] == "sed"), False
-    if verb == "curl":
-        return any(_CURL_OUT.fullmatch(a) or a in ("--output", "--remote-name")
-                   for a in args), False
-    if verb == "tar":
-        return bool(args) and bool(re.fullmatch(r"-?[A-Za-z]*x[A-Za-z]*", args[0])), False
-    if verb == "git":
-        sub = _git_subcommand(args)
-        if sub == "stash":
-            rest = args[args.index("stash") + 1:]
-            return not (rest and rest[0] in ("list", "show")), False
-        return sub in GIT_TREE_WRITES, False
     if verb == "xargs":
-        rest = [a for a in args if not a.startswith("-")]
-        return (_classify(PurePosixPath(rest[0]).name, rest[1:], False)
-                if rest else (False, False))
+        return _classify_xargs(args)
     if verb in SHELLS:
-        if "-c" in args and args.index("-c") + 1 < len(args):
-            inner = analyze(args[args.index("-c") + 1])
-            return any(s["writes"] for s in inner), any(s["opaque"] for s in inner)
-        return False, heredoc or "-" in args
-    base = re.sub(r"[\d.]+$", "", verb)
-    if base in INTERPRETERS:
+        return _classify_shell(args, heredoc)
+    if re.sub(r"[\d.]+$", "", verb) in INTERPRETERS:
         return False, heredoc or "-c" in args or "-e" in args or "-" in args
     return False, False
 

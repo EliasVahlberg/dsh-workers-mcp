@@ -1,6 +1,6 @@
 {
   "src/dsh_workers_mcp/brief.py::build": 40,
-  "src/dsh_workers_mcp/digest.py::_classify": 37,
+  "src/dsh_workers_mcp/digest.py::_classify": 11,
   "src/dsh_workers_mcp/digest.py::_split_redirects": 19,
   "src/dsh_workers_mcp/digest.py::_unwrap": 14,
   "src/dsh_workers_mcp/digest.py::build": 11,

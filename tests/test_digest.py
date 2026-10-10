@@ -391,3 +391,34 @@ def test_edited_view_uses_the_worktree_or_the_common_root() -> None:
     fold = digest._Fold(edited={"/p/src/a.py": 2, "/p/src/b.py": 1})
     assert digest._edited_view(fold, "/p") == {"edited": ["/p/src/a.py x2", "/p/src/b.py"]}
     assert digest._edited_view(fold, None) == {"root": "/p/src", "edited": ["a.py x2", "b.py"]}
+
+
+@pytest.mark.parametrize("verb, args, expected", [
+    ("find", ["-name", "x", "-delete"], (True, False)),
+    ("find", ["-exec", "rm", "{}", ";"], (True, False)),
+    ("find", ["-exec"], (False, False)),
+    ("find", ["-name", "x"], (False, False)),
+    ("tar", ["xzf", "a.tgz"], (True, False)),
+    ("tar", ["tf", "a.tgz"], (False, False)),
+    ("tar", [], (False, False)),
+    ("git", ["checkout", "main"], (True, False)),
+    ("git", ["log"], (False, False)),
+    ("git", ["stash"], (True, False)),
+    ("git", ["stash", "list"], (False, False)),
+    ("curl", ["-o", "f", "http://x"], (True, False)),
+    ("curl", ["http://x"], (False, False)),
+    ("sed", ["-i", "s/a/b/", "f"], (True, False)),
+    ("sed", ["s/a/b/", "f"], (False, False)),
+    ("perl", ["-pi", "-e", "s/a/b/", "f"], (True, False)),
+    ("perl", ["-e", "print 1"], (False, True)),            # not in place: still an interpreter
+    ("xargs", ["rm"], (True, False)),
+    ("xargs", ["-0"], (False, False)),
+    ("sh", ["-c", "rm x"], (True, False)),
+    ("sh", ["-c", "python3 -c 1"], (False, True)),
+    ("python3.11", ["a.py"], (False, False)),
+    ("python3.11", ["-c", "1"], (False, True)),
+    ("wget", ["--spider", "http://x"], (False, False)),
+    ("wget", ["http://x"], (True, False)),
+])
+def test_classify_decides_writes_and_opacity_per_verb(verb, args, expected) -> None:
+    assert digest._classify(verb, args, heredoc=False) == expected
