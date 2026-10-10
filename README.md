@@ -1,5 +1,7 @@
 # dsh-workers-mcp
 
+![dsh-workers-mcp: drive long-lived dsh sessions as persistent workers](assets/banner.svg)
+
 An MCP server that drives **long-lived [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) sessions as persistent workers**. An orchestrating agent in any working directory uses it to dispatch work to the workers, answer the questions that block them, and inspect what they did.
 
 The premise: a `dsh` worker session builds up orientation, and orientation is expensive. In the author's testing, a 57-turn session held about 13 hours of model time at a 97% cache-hit rate. That session is private, so you cannot reproduce the figure. To throw that away for each task is waste. These tools treat workers as teammates that you keep. They do not treat workers as functions that you call.
@@ -231,7 +233,7 @@ The modules import each other in one direction only. The docstring of [`src/dsh_
 
 To add a tool, add one `Tool` object to `tools/session_tools.py`, `tools/work_tools.py` or `tools/state_tools.py`. It holds the name, the description, the schema, the handler, and a one-line summary. Then run `uv run python scripts/gen-tool-tables.py` to update the tool tables in this README and in the skill. `tests/test_tool_tables.py` fails when a table is out of date.
 
-409 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+414 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious

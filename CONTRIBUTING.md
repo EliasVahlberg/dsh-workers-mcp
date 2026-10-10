@@ -37,6 +37,11 @@ server is needed: the tests use a stand-in (`tests/fakes.py`, `tests/fake_http.p
 - **State what you verified.** In a commit message or a doc, say what ran against a
   live dsh and what ran only against the fake.
 
+## Brand assets
+
+Do not edit `assets/banner.svg`, `assets/social.svg` or `assets/social.png` by hand.
+[`assets/README.md`](assets/README.md) says how to rebuild them.
+
 ## A change to a dsh call
 
 The dsh API is not a stable interface. If you change what the code reads from a

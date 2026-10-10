@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="t d">
+  <title id="t">dsh-workers-mcp</title>
+  <desc id="d">A friendly round robot lead waves at three small worker robots.</desc>
+  <g stroke="#1F2A44" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <!-- badge -->
+    <rect x="12" y="12" width="488" height="488" rx="112" fill="#FFF4DE"/>
+
+    <!-- connectors from the lead to the workers -->
+    <g fill="none" stroke-width="5" stroke-dasharray="1 13">
+      <path d="M232 340 Q138 346 138 388"/>
+      <path d="M256 344 L256 388"/>
+      <path d="M280 340 Q374 346 374 388"/>
+    </g>
+
+    <!-- workers -->
+    <g>
+      <!-- left worker -->
+      <path d="M138 392 L138 376"/>
+      <circle cx="138" cy="368" r="9" fill="#FF7A66"/>
+      <rect x="96" y="392" width="84" height="72" rx="28" fill="#FFC857"/>
+      <circle cx="122" cy="424" r="6" fill="#1F2A44" stroke="none"/>
+      <circle cx="154" cy="424" r="6" fill="#1F2A44" stroke="none"/>
+      <path d="M130 440 Q138 448 146 440" fill="none" stroke-width="5"/>
+
+      <!-- middle worker -->
+      <rect x="214" y="392" width="84" height="72" rx="28" fill="#FF7A66"/>
+      <circle cx="240" cy="424" r="6" fill="#1F2A44" stroke="none"/>
+      <circle cx="272" cy="424" r="6" fill="#1F2A44" stroke="none"/>
+      <path d="M248 440 Q256 448 264 440" fill="none" stroke-width="5"/>
+
+      <!-- right worker -->
+      <path d="M374 392 Q372 374 387 372" fill="none" stroke-width="6"/>
+      <rect x="332" y="392" width="84" height="72" rx="28" fill="#A99BFF"/>
+      <circle cx="358" cy="424" r="6" fill="#1F2A44" stroke="none"/>
+      <circle cx="390" cy="424" r="6" fill="#1F2A44" stroke="none"/>
+      <path d="M366 440 Q374 448 382 440" fill="none" stroke-width="5"/>
+    </g>
+
+    <!-- the lead: arms, body, head -->
+    <rect x="170" y="262" width="30" height="62" rx="15" fill="#36A897" transform="rotate(8 185 270)"/>
+    <rect x="303" y="232" width="30" height="70" rx="15" fill="#36A897" transform="rotate(40 318 296)"/>
+    <rect x="196" y="236" width="120" height="108" rx="40" fill="#36A897"/>
+    <circle cx="256" cy="294" r="17" fill="#FFC857"/>
+    <path d="M249 294 L255 300 L264 288" fill="none" stroke-width="5"/>
+
+    <!-- head -->
+    <rect x="136" y="150" width="30" height="58" rx="15" fill="#FFC857"/>
+    <rect x="346" y="150" width="30" height="58" rx="15" fill="#FFC857"/>
+    <path d="M256 104 L256 74"/>
+    <circle cx="256" cy="62" r="15" fill="#FF7A66"/>
+    <rect x="152" y="100" width="208" height="156" rx="62" fill="#46C2B0"/>
+    <rect x="178" y="126" width="156" height="104" rx="44" fill="#E9FBF7" stroke-width="5"/>
+
+    <!-- face -->
+    <circle cx="222" cy="172" r="19" fill="#1F2A44" stroke="none"/>
+    <circle cx="290" cy="172" r="19" fill="#1F2A44" stroke="none"/>
+    <circle cx="229" cy="164" r="7" fill="#FFFFFF" stroke="none"/>
+    <circle cx="297" cy="164" r="7" fill="#FFFFFF" stroke="none"/>
+    <ellipse cx="198" cy="204" rx="11" ry="7" fill="#FF9DB0" stroke="none"/>
+    <ellipse cx="314" cy="204" rx="11" ry="7" fill="#FF9DB0" stroke="none"/>
+    <path d="M238 198 Q256 220 274 198" fill="none" stroke-width="7"/>
+  </g>
+</svg>
