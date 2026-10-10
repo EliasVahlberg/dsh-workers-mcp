@@ -21,8 +21,9 @@ import time
 import traceback
 
 try:  # installed as a package
-    from dsh_workers_mcp import dshctl, state as state_mod
+    from dsh_workers_mcp import brief as brief_mod, dshctl, state as state_mod
 except ImportError:  # run directly as a script from this directory
+    import brief as brief_mod  # type: ignore[no-redef]
     import dshctl  # type: ignore[no-redef]
     import state as state_mod  # type: ignore[no-redef]
 
@@ -521,6 +522,31 @@ def _tools() -> list[dict]:
                 "required": ["session"],
             },
         },
+        {
+            "name": "dsh_brief",
+            "description": (
+                "The start-of-session sweep in one call: call it at the start of a lead "
+                "session, after a compaction, and after a long wait. Refreshes the roster "
+                "from dsh, then returns `needsAction` first (one line each: tasks "
+                "returned and awaiting your verdict, tasks blocked on you, in-review "
+                "tasks left open, requests pending in dsh with their rpc_id, workers "
+                "idle with no task, workers dsh no longer has, drift from changes made "
+                "outside this server), then one line per active worker (role, running/"
+                "idle, task, last turn end, context %) and per open task (status and "
+                "how long, owner, and for tasks being worked on the worktree's size "
+                "since the dispatch). If the state directory holds an executable "
+                "`brief-extra`, its output is appended under `project`. With dsh down "
+                "it answers from the last observed state and says so. live=false skips "
+                "the refresh and the ~2s pending read."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "live": {"type": "boolean", "default": True,
+                             "description": "refresh from dsh and read pending requests"},
+                },
+            },
+        },
     ]
 
 
@@ -638,6 +664,7 @@ STATE_TOOLS = {
     "dsh_roster": state_mod.cmd_roster,
     "dsh_tasks": state_mod.cmd_tasks,
     "dsh_digest": state_mod.cmd_digest,
+    "dsh_brief": brief_mod.cmd_brief,
 }
 
 

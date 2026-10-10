@@ -101,6 +101,7 @@ kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-worke
 | `dsh_roster` | managed workers: server-filled facts + your role/notes | no |
 | `dsh_tasks` | task records: server-tracked dispatch/return + your verdicts | no |
 | `dsh_digest` | what a worker did in its last turn(s), computed mechanically (no model) | no |
+| `dsh_brief` | the start-of-session sweep: what needs you, then the roster and open tasks | no |
 
 Three groups carry the weight: **delegate** (`dsh_task`/`dsh_ask`), **report**
 (`dsh_status`/`dsh_grep`), **unblock** (`dsh_pending`/`dsh_answer`). The rest
@@ -218,7 +219,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-222 tests, no live server needed. They cover the places where being wrong is
+238 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

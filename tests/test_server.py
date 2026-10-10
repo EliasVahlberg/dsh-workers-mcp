@@ -63,7 +63,7 @@ def test_tools_list_covers_the_expected_surface() -> None:
         # manage
         "dsh_create", "dsh_cancel", "dsh_goal", "dsh_name", "dsh_permission", "dsh_fork",
         # orchestrator state (only listed when a state dir is configured)
-        "dsh_roster", "dsh_tasks", "dsh_digest",
+        "dsh_roster", "dsh_tasks", "dsh_digest", "dsh_brief",
     }
 
 

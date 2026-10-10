@@ -43,6 +43,7 @@ python3 tools/dshctl/dshctl.py ask <session> "question"
 | Your team: roles, notes, last observed state | `dsh_roster` | no |
 | Your task records and verdicts | `dsh_tasks` | no |
 | What a worker did in its last turn(s), mechanically | `dsh_digest` | no |
+| The start-of-session sweep and your to-do list | `dsh_brief` | no |
 
 The three groups matter more than the individual tools: **delegate**
 (`dsh_task`/`dsh_ask`), **report** (`dsh_status`/`dsh_grep`), and **unblock**
@@ -69,9 +70,10 @@ Your session ends and compacts too. The server keeps what it observed in the
 state directory (`.orchestrator/` where it was started, or `--state-dir`), so a
 new orchestrator session starts from files, not from your recollection:
 
-1. **Start of session:** `dsh_roster` (who is on the team, their roles, current
-   task, last turn end) and `dsh_tasks` (what is open, dispatched, blocked,
-   returned). Returned tasks are waiting for your judgment.
+1. **Start of session:** `dsh_brief`. It refreshes from dsh and answers in one
+   call: what needs you (returned tasks awaiting a verdict, blocked tasks,
+   pending requests with their `rpc_id`, idle workers, drift), then the roster
+   and open tasks. For the detail, `dsh_roster` and `dsh_tasks`.
 2. **Catching up on one worker:** `dsh_roster action=show session=…` returns its
    `state.json`: last real prompt and reply with timestamps, last turn end,
    context use, blocked-on. It is *last observed* (`observedAt`); confirm with

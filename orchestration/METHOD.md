@@ -47,16 +47,22 @@ written automatically. Never hand-edit them; use `dsh_roster` and `dsh_tasks`.
 
 ## Start of every lead session
 
-1. `dsh_roster` and `dsh_tasks`: who is on the team, and what is `dispatched`,
-   `blocked` or `returned`. A `returned` task is waiting for your verdict.
-2. `dsh_pending`: anyone blocked on you right now. Unblock them first.
-3. Read `PROJECT.md` and the last entries of `DECISIONS.md` and `FRICTION.md`.
-4. `dsh_list`: resolve any **drift** it reports before relying on the roster.
+1. `dsh_brief`: the whole sweep in one call. It refreshes the roster from dsh
+   and lists first what needs *your* action: tasks `returned` (waiting for your
+   verdict), `blocked` on you, left `in-review`, requests pending in dsh (with
+   the `rpc_id` to answer), workers idle with no task, workers dsh no longer
+   has, and **drift**. Unblock anyone pending first. Then one line per worker
+   and per open task, with the size of the work in progress.
+2. Read `PROJECT.md` and the last entries of `DECISIONS.md` and `FRICTION.md`.
+3. Resolve any drift the brief reported before relying on the roster.
 
 Do not reconstruct state from memory or from worker transcripts when the files
 have it. The same holds mid-session: after a compaction, a restart, or a long
-wait on a worker, sweep again (steps 1, 2 and 4) before acting. The records
-are the read; what you remember of them is not.
+wait on a worker, call `dsh_brief` again before acting. The records are the
+read; what you remember of them is not. A project can add its own lines to the
+brief (the diff of each open task against its base, the state of a remote) with
+an executable `brief-extra` in the state directory; its output appears under
+`project`.
 
 ## Hiring a worker
 
