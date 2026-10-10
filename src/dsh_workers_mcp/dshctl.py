@@ -624,14 +624,23 @@ def set_permission(session_id: str, preset: str, base: str) -> dict:
     return {"previous": before["preset"], **after}
 
 
-OVERLAY_DIR = Path(__file__).resolve().parent / "overlays" / "tool-policy"
+def _overlay_dir() -> Path:
+    """Installed: inside the package. From a checkout: overlays/ at the repository root."""
+    here = Path(__file__).resolve().parent
+    candidates = [here / "overlays" / "tool-policy", here.parent.parent / "overlays" / "tool-policy"]
+    return next((c for c in candidates if (c / "policy.patch.yml").is_file()), candidates[0])
+
+
+OVERLAY_DIR = _overlay_dir()
 
 
 def render_policy_patch() -> str:
     """The tool-policy patch with the plugin's absolute path filled in (dsh needs one)."""
+    template = OVERLAY_DIR / "policy.patch.yml"
+    if not template.is_file():
+        raise RpcError(f"the tool-policy overlay is not part of this installation ({template})")
     path = str(OVERLAY_DIR).replace("'", "''")      # the template single-quotes it (YAML)
-    return (OVERLAY_DIR / "policy.patch.yml").read_text(encoding="utf-8") \
-        .replace("@PLUGIN_DIR@", path)
+    return template.read_text(encoding="utf-8").replace("@PLUGIN_DIR@", path)
 
 
 def cmd_policy_patch(args) -> int:

@@ -44,3 +44,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dsh_workers_mcp"]
+
+# overlays/ sits at the repository root so it can be found; the wheel carries it
+# inside the package, where dshctl looks first.
+[tool.hatch.build.targets.wheel.force-include]
+"overlays" = "dsh_workers_mcp/overlays"

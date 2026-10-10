@@ -77,6 +77,31 @@ The companion skill at [`skills/dsh-workers/SKILL.md`](skills/dsh-workers/SKILL.
 documents the protocol, the operational traps, and compaction semantics. For
 kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-workers/SKILL.md`.
 
+## Permission presets
+
+The method hires workers at a supervision level (`dsh_create permission=…`).
+Stock `dsh` does not have those levels, so [`overlays/tool-policy/`](overlays/tool-policy/)
+provides them as a dsh patch you can read and edit:
+
+| Preset | Behaviour |
+|---|---|
+| `read-only` | `write`/`edit` denied. Reviewers and verifiers |
+| `supervised` | web access and `git push` ask the lead (`dsh_pending`) |
+| `autonomous` | the same are rejected outright, so it never blocks |
+
+```bash
+dshctl policy-patch --out ~/.dsh/tool-policy.patch.yml        # fills in this install's path
+dsh --patch ~/.dsh/tool-policy.patch.yml --profile <profile> --dump-config   # does it compose?
+dsh --patch ~/.dsh/tool-policy.patch.yml --profile <profile>
+```
+
+The rules are data (`tool`, an argument regex, `allow`/`deny`/`ask`, a reason), so
+you add your own; the overlay's README has examples. Presets control **scope,
+not security**: reads and the network stay open, and `bash` rules match command
+text, which is easy to evade. Status: the patch composes with `--dump-config`;
+its live-boot checks (a denied `git push`, an approval raised) come from earlier
+testing of the same plugin, not from this release.
+
 ## The tools
 
 | Tool | Does | Blocks? |
@@ -119,15 +144,8 @@ state directory. Gate them deliberately: a worker acts on an
 answer or approval with full tool access.
 
 Supervision-level presets (`read-only` / `supervised` / `autonomous`) come from
-the `tool-policy` dsh overlay that ships in this package. Render it with
-`dshctl policy-patch --out ~/.dsh/tool-policy.patch.yml`, check it with
-`dsh --patch <file> --dump-config --profile <profile>`, and start `dsh` with
-`--patch <file>`. The rules are plain data you can extend; see
-[`overlays/tool-policy/README.md`](src/dsh_workers_mcp/overlays/tool-policy/README.md).
-They control **scope, not security**: reads and the network stay open, and bash
-rules match command text. The overlay was composed with `--dump-config` for this
-release; its live-boot checks (a denied `git push`, an approval raised) are from
-the author's earlier testing of the same plugin.
+the [`overlays/tool-policy/`](overlays/tool-policy/) dsh overlay: see
+[Permission presets](#permission-presets). They control **scope, not security**.
 
 ## The method
 
