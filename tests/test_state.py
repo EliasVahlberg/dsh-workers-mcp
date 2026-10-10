@@ -636,3 +636,153 @@ def test_usage_delta_ignores_resets_and_missing_totals() -> None:
     assert st.usage_delta(None, {"output": 5}) == {}
     assert st.usage_delta({"output": 10, "steps": 3}, {"output": 4, "steps": 9}) == {"steps": 6}
     assert st.usage_delta({"output": 1}, {"steps": 9}) == {}
+
+
+# ------------------------------------------- the steps behind observe and after_call
+
+def _event(seq: int, etype: str, **data) -> dict:
+    return {"seq": seq, "type": etype, "time": 1_790_000_000_000 + seq * 1000, "data": data}
+
+
+def test_fold_new_events_keeps_the_latest_prompt_reply_and_turn_end() -> None:
+    state: dict = {}
+    st._fold_new_events(state, [
+        _event(1, "user/message", source={"kind": "plugin"}, content=[{"type": "text", "text": "ctx"}]),
+        _event(2, "user/message", source={"kind": "user"}, content=[{"type": "text", "text": "do it"}]),
+        _event(3, "assistant/message", message={"content": [{"type": "text", "text": "done"}]}),
+        _event(4, "turn/end", reason={"kind": "completed"}),
+        _event(5, "assistant/chunk", delta="x")])
+    assert state["lastPrompt"]["seq"] == 2 and state["lastPrompt"]["text"] == "do it"
+    assert state["lastReply"]["text"] == "done"
+    assert state["lastTurnEnd"]["seq"] == 4 and state["lastTurnEnd"]["kind"] == "completed"
+
+
+def test_observed_state_reads_the_summary_and_keeps_what_was_there() -> None:
+    summary = {"running": True, "cwd": "/w", "projections": {"values": {
+        "title": "t", "permissions": {"currentValue": "supervised"},
+        "sessionStats": {"turns": 4, "steps": 9},
+        "contextPressure": {"contextWindow": 1000, "pressureTokens": 250},
+        "goal": {"goal": {"objective": "o", "status": "active"}}}}}
+    state = st._observed_state({"keep": 1}, summary, [], 17, "session-aaaa1111")
+    assert state["keep"] == 1 and state["running"] is True and state["mirroredSeq"] == 17
+    assert state["context"] == {"window": 1000, "used": 250, "usedPct": 25.0}
+    assert state["work"] == {"turns": 4, "steps": 9}
+    assert state["goal"] == {"objective": "o", "status": "active"}
+    empty = st._observed_state({}, {}, [], -1, "s")
+    assert empty["context"]["usedPct"] is None and empty["goal"] is None and empty["running"] is False
+
+
+def test_update_blocked_sets_clears_and_keeps() -> None:
+    state = {"running": True, "lastTurnEnd": {"seq": 5}}
+    st._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, [{"kind": "approval/requested", "rpcId": "r1",
+                                                            "toolName": "bash", "extra": 1}], False)
+    assert state["blocked"]["pending"] == [{"kind": "approval/requested", "rpcId": "r1", "toolName": "bash"}]
+    st._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, None, False)         # a plain poll keeps it
+    assert "blocked" in state
+    st._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, None, True)          # an answer clears it
+    assert "blocked" not in state
+    state["blocked"] = {}
+    st._update_blocked({**state, "lastTurnEnd": {"seq": 9}}, {"lastTurnEnd": {"seq": 5}}, None, False)
+    state["running"] = False
+    st._update_blocked(state, {}, None, False)                          # an idle worker is not blocked
+    assert "blocked" not in state
+
+
+def test_worker_auto_copies_the_fields_the_roster_shows() -> None:
+    state = {"title": "t", "permission": "p", "cwd": "/w", "running": False, "goal": None,
+             "lastTurnEnd": {"seq": 1}, "compaction": {"stalled": "x"}}
+    auto = st._worker_auto(state, {"agentPreset": "standard"})
+    assert auto == {"title": "t", "permission": "p", "cwd": "/w", "agentPreset": "standard",
+                    "running": False, "goal": None, "lastTurnEnd": {"seq": 1}, "missing": False,
+                    "compactionStalled": "x"}
+
+
+@pytest.mark.parametrize("status, last, end, blocked, unblocked, expected", [
+    ("dispatched", {"seqBefore": 10}, {"seq": 12}, False, False, "returned"),
+    ("dispatched", {"seqBefore": 10}, {"seq": 12}, True, False, "blocked"),
+    ("dispatched", {"seqBefore": 10}, {"seq": 9}, False, False, None),        # ended before the dispatch
+    ("dispatched", {"seqBefore": None}, {"seq": 0}, False, False, "returned"),
+    ("blocked", {"seqBefore": 10}, {"seq": 5}, False, True, "dispatched"),
+    ("blocked", {"seqBefore": 10}, {"seq": 5}, False, False, None),
+])
+def test_next_status_follows_the_facts(status, last, end, blocked, unblocked, expected) -> None:
+    assert st._next_status({"status": status}, last, end, blocked, unblocked) == expected
+
+
+def test_record_return_stores_the_turn_end_and_the_usage() -> None:
+    last = {"at": "2026-10-10T10:00:00+00:00", "usageBefore": {"outputTokens": 1, "output": 10}}
+    end = {"seq": 7, "at": "2026-10-10T10:30:00+00:00", "kind": "completed"}
+    st._record_return(last, end, {"usage": {"output": 110}})
+    assert last["turnEnd"] == end and last["usage"] == {"output": 100, "wallMinutes": 30.0}
+    bare: dict = {}
+    st._record_return(bare, {"seq": 1}, {})
+    assert bare == {"turnEnd": {"seq": 1}}
+
+
+def test_record_transition_updates_status_history_and_time() -> None:
+    task = {"status": "dispatched", "history": []}
+    st._record_transition(task, "returned", {"kind": "completed"})
+    assert task["status"] == "returned" and task["updated"] == task["history"][0]["at"]
+    assert task["history"][0]["turnEnd"] == "completed" and task["history"][0]["by"] == "server"
+    st._record_transition(task, "blocked", {"kind": "completed"})
+    assert "turnEnd" not in task["history"][1]
+
+
+def test_check_patterns_skips_comments_and_reports_bad_regexes(state) -> None:
+    assert st._check_patterns(state) == ([], [])
+    state.root.mkdir(parents=True, exist_ok=True)
+    (state.root / "checks.txt").write_text("# a comment\n\n^make verify\n(unclosed\n  gradle test  \n")
+    assert st._check_patterns(state) == (["^make verify", "gradle test"], ["(unclosed"])
+
+
+def test_digest_task_names_the_task_or_falls_back_to_the_workers(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test")
+    assert st._digest_task(state, sid, None) is None
+    tid = _task()
+    state._update_worker(sid, auto={"lastTask": tid})
+    assert st._digest_task(state, sid, None)["id"] == tid
+    assert st._digest_task(state, sid, tid)["id"] == tid
+    with pytest.raises(dshctl.RpcError, match="no task 'T-404'"):
+        st._digest_task(state, sid, "T-404")
+
+
+def test_mirrored_events_reads_the_jsonl_file(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test")
+    assert st._mirrored_events(state, sid) == []
+    dsh.turn(sid, "go", "done")
+    state.observe(sid)
+    assert [e["type"] for e in st._mirrored_events(state, sid)][-1] == "turn/end"
+
+
+def test_auto_facts_per_tool(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    created = st._auto_facts(state, "dsh_create", {"permission": "autonomous"}, {"sessionId": sid}, sid)
+    assert created["permissionSet"] == "autonomous" and created["model"] == "deepseek-official/deepseek-flash"
+    assert "createdAt" in created
+    assert st._auto_facts(state, "dsh_create", {}, {"selectedModel": "a/b"}, sid)["model"] == "a/b"
+    assert st._auto_facts(state, "dsh_name", {}, {"title": "w"}, sid) == {"name": "w"}
+    assert st._auto_facts(state, "dsh_permission", {"preset": "read-only"}, {}, sid) == {
+        "permissionSet": "read-only"}
+    assert st._auto_facts(state, "dsh_permission", {}, {}, sid) == {}
+    assert st._auto_facts(state, "dsh_status", {}, {}, sid) == {}
+
+
+def test_enriched_result_adds_the_digest_to_a_finished_wait_and_a_stall_to_a_status(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test")
+    dsh.turn(sid, "go", "done")
+    state.observe(sid)
+    done = {"completed": True}
+    assert "digest" in st._enriched_result(state, "dsh_wait", {"digest": True}, sid, done)
+    assert st._enriched_result(state, "dsh_wait", {}, sid, done) is None                  # not asked for
+    blocked_wait = {"completed": True, "blocked": True}
+    assert st._enriched_result(state, "dsh_wait", {"digest": True}, sid, blocked_wait) is None
+    assert st._enriched_result(state, "dsh_status", {}, sid, {"id": 1}) is None           # no stall
+    path = state.session_dir(sid) / "state.json"
+    stalled = {**json.loads(path.read_text()), "compaction": {"stalled": "stuck"}}
+    path.write_text(json.dumps(stalled))
+    status = st._enriched_result(state, "dsh_status", {}, sid, {"id": 1})
+    assert status == {"id": 1, "compactionStalled": "stuck"}
+    assert st._enriched_result(state, "dsh_status", {}, sid, "text") is None

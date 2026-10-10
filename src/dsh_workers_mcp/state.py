@@ -170,6 +170,104 @@ def short(session_id: str) -> str:
     return session_id.removeprefix("session-")[:8]
 
 
+def _fold_new_events(state: dict, new_events: list[dict]) -> None:
+    """Update lastPrompt, lastReply and lastTurnEnd from the events that were just mirrored."""
+    for event in new_events:
+        etype = event.get("type")
+        when = ms_to_iso(event.get("time"))
+        if _user_prompt(event):
+            state["lastPrompt"] = {"seq": event["seq"], "at": when,
+                                   "text": dshctl.text_of(event)[:PREVIEW_CHARS]}
+        elif etype == "assistant/message":
+            state["lastReply"] = {"seq": event["seq"], "at": when,
+                                  "text": dshctl.text_of(event)[:PREVIEW_CHARS]}
+        elif etype == "turn/end":
+            reason = (event.get("data") or {}).get("reason") or {}
+            state["lastTurnEnd"] = {"seq": event["seq"], "at": when, **reason}
+
+
+def _observed_state(prev: dict, summary: dict, new_events: list[dict], last_seq: int,
+                    session_id: str) -> dict:
+    """The new state.json of a session: the previous one, the new events and the dsh summary."""
+    state = dict(prev)
+    _fold_new_events(state, new_events)
+    values = dshctl.projections(summary)
+    stats = values.get("sessionStats") or {}
+    pressure = values.get("contextPressure") or {}
+    window = pressure.get("contextWindow") or 0
+    used = pressure.get("pressureTokens") or 0
+    goal = (values.get("goal") or {}).get("goal") or {}
+    state.update({
+        "sessionId": session_id,
+        "observedAt": now_iso(),
+        "running": bool(summary.get("running")),
+        "title": values.get("title"),
+        "permission": (values.get("permissions") or {}).get("currentValue"),
+        "cwd": summary.get("cwd"),
+        "goal": {"objective": goal.get("objective"), "status": goal.get("status")}
+        if goal else None,
+        "context": {"window": window, "used": used,
+                    "usedPct": round(used / window * 100, 1) if window else None},
+        "work": {"turns": stats.get("turns"), "steps": stats.get("steps")},
+        "mirroredSeq": last_seq,
+    })
+    return state
+
+
+def _update_blocked(state: dict, prev: dict, blocked: list | None, unblocked: bool) -> None:
+    """Set `blocked` while requests are pending. Clear it once the worker is unblocked or moves on."""
+    if blocked:
+        state["blocked"] = {"at": now_iso(), "pending": [
+            {k: item.get(k) for k in ("kind", "rpcId", "toolName", "reason")
+             if item.get(k) is not None} for item in blocked]}
+        return
+    ended_since = state.get("lastTurnEnd", {}).get("seq", -1) > prev.get("lastTurnEnd", {}).get("seq", -1)
+    if unblocked or not state["running"] or ended_since:
+        state.pop("blocked", None)
+
+
+def _worker_auto(state: dict, summary: dict) -> dict:
+    """The roster's auto fields for a worker, from its new state and the dsh summary."""
+    return {
+        "title": state["title"], "permission": state["permission"],
+        "cwd": state["cwd"], "agentPreset": summary.get("agentPreset"),
+        "running": state["running"], "goal": state["goal"],
+        "lastTurnEnd": state.get("lastTurnEnd"), "missing": False,
+        "compactionStalled": state["compaction"].get("stalled"),
+    }
+
+
+def _next_status(task: dict, last: dict, end: dict, blocked: bool, unblocked: bool) -> str | None:
+    """The status that a task moves to after an observation, or None when it stays."""
+    seq_before = last.get("seqBefore")
+    if end.get("seq", -1) > (seq_before if seq_before is not None else -1) and not blocked:
+        return "returned"
+    if blocked:
+        return "blocked"
+    if task["status"] == "blocked" and unblocked:
+        return "dispatched"
+    return None
+
+
+def _record_return(last: dict, end: dict, state: dict) -> None:
+    """Record on the dispatch how its turn ended and what it used."""
+    last["turnEnd"] = end
+    usage = usage_delta(last.get("usageBefore"), state.get("usage"))
+    wall = _minutes_between(last.get("at"), end.get("at"))
+    if wall is not None:
+        usage["wallMinutes"] = wall
+    if usage:
+        last["usage"] = usage
+
+
+def _record_transition(task: dict, new_status: str, end: dict) -> None:
+    stamp = now_iso()
+    task["status"] = new_status
+    task["history"].append({"at": stamp, "status": new_status, "by": "server",
+                            **({"turnEnd": end.get("kind")} if new_status == "returned" else {})})
+    task["updated"] = stamp
+
+
 # -------------------------------------------------------------------- state
 
 class State:
@@ -380,60 +478,13 @@ class State:
             return {}
         synced = self.sync_history(session_id)
         summary = summary or dshctl.find_session(session_id, self.client)
-        values = dshctl.projections(summary)
-        stats = values.get("sessionStats") or {}
-        pressure = values.get("contextPressure") or {}
-        window = pressure.get("contextWindow") or 0
-        used = pressure.get("pressureTokens") or 0
-        goal = (values.get("goal") or {}).get("goal") or {}
-
         prev = self.session_state(session_id)
-        state = dict(prev)
-        for event in synced["new"]:
-            etype = event.get("type")
-            when = ms_to_iso(event.get("time"))
-            if _user_prompt(event):
-                state["lastPrompt"] = {"seq": event["seq"], "at": when,
-                                       "text": dshctl.text_of(event)[:PREVIEW_CHARS]}
-            elif etype == "assistant/message":
-                state["lastReply"] = {"seq": event["seq"], "at": when,
-                                      "text": dshctl.text_of(event)[:PREVIEW_CHARS]}
-            elif etype == "turn/end":
-                reason = (event.get("data") or {}).get("reason") or {}
-                state["lastTurnEnd"] = {"seq": event["seq"], "at": when, **reason}
-        running = bool(summary.get("running"))
-        state.update({
-            "sessionId": session_id,
-            "observedAt": now_iso(),
-            "running": running,
-            "title": values.get("title"),
-            "permission": (values.get("permissions") or {}).get("currentValue"),
-            "cwd": summary.get("cwd"),
-            "goal": {"objective": goal.get("objective"), "status": goal.get("status")}
-            if goal else None,
-            "context": {"window": window, "used": used,
-                        "usedPct": round(used / window * 100, 1) if window else None},
-            "work": {"turns": stats.get("turns"), "steps": stats.get("steps")},
-            "mirroredSeq": synced["lastSeq"],
-        })
+        state = _observed_state(prev, summary, synced["new"], synced["lastSeq"], session_id)
         state["compaction"] = self._track_compaction(session_id, prev, state, synced["new"])
         state["usage"] = usage_snapshot(summary)
-        if blocked:
-            state["blocked"] = {"at": now_iso(), "pending": [
-                {k: item.get(k) for k in ("kind", "rpcId", "toolName", "reason")
-                 if item.get(k) is not None} for item in blocked]}
-        elif unblocked or not running or state.get("lastTurnEnd", {}).get("seq", -1) > \
-                prev.get("lastTurnEnd", {}).get("seq", -1):
-            state.pop("blocked", None)
+        _update_blocked(state, prev, blocked, unblocked)
         _write_json(self.session_dir(session_id) / "state.json", state)
-
-        self._update_worker(session_id, auto={
-            "title": state["title"], "permission": state["permission"],
-            "cwd": state["cwd"], "agentPreset": summary.get("agentPreset"),
-            "running": running, "goal": state["goal"],
-            "lastTurnEnd": state.get("lastTurnEnd"), "missing": False,
-            "compactionStalled": state["compaction"].get("stalled"),
-        })
+        self._update_worker(session_id, auto=_worker_auto(state, summary))
         self._advance_task(session_id, state, blocked=bool(blocked), unblocked=unblocked)
         return state
 
@@ -604,28 +655,11 @@ class State:
                 return
             last = task["dispatches"][-1]
             end = state.get("lastTurnEnd") or {}
-            stamp = now_iso()
-            new_status = None
-            if end.get("seq", -1) > (last.get("seqBefore") if last.get("seqBefore")
-                                     is not None else -1) and not blocked:
-                last["turnEnd"] = end
-                usage = usage_delta(last.get("usageBefore"), state.get("usage"))
-                wall = _minutes_between(last.get("at"), end.get("at"))
-                if wall is not None:
-                    usage["wallMinutes"] = wall
-                if usage:
-                    last["usage"] = usage
-                new_status = "returned"
-            elif blocked:
-                new_status = "blocked"
-            elif task["status"] == "blocked" and unblocked:
-                new_status = "dispatched"
+            new_status = _next_status(task, last, end, blocked, unblocked)
+            if new_status == "returned":
+                _record_return(last, end, state)
             if new_status and new_status != task["status"]:
-                task["status"] = new_status
-                task["history"].append({"at": stamp, "status": new_status, "by": "server",
-                                        **({"turnEnd": end.get("kind")}
-                                           if new_status == "returned" else {})})
-                task["updated"] = stamp
+                _record_transition(task, new_status, end)
                 self._save_tasks(data)
             elif new_status == "returned":
                 self._save_tasks(data)  # turnEnd recorded on the dispatch
@@ -660,6 +694,62 @@ def before_call(state: State, tool: str, arguments: dict) -> None:
         state.check_dispatch(arguments["task_id"], session_id)
 
 
+def _annotate_list(state: State, result: list) -> list:
+    """Add the roster entry to each row of dsh_list, and the roster's workers that dsh lost."""
+    summaries = state.client.rpc("session.list").get("items", [])
+    report = state.reconcile(summaries)
+    listed = {row["sessionId"] for row in result}
+    for row in result:
+        if row["sessionId"] in report:
+            row["roster"] = report[row["sessionId"]]
+    for sid, entry in report.items():
+        if sid not in listed and entry.get("missing"):
+            result.append({"sessionId": sid, "roster": entry})
+    return result
+
+
+def _created_facts(state: State, arguments: dict, result: dict, session_id: str) -> dict:
+    """What dsh_create established: when, the model and the permission that was set."""
+    auto: dict = {"createdAt": now_iso()}
+    if result.get("selectedModel"):
+        auto["model"] = result["selectedModel"]
+    else:
+        with contextlib.suppress(dshctl.RpcError):
+            current = state.client.rpc("session.models", {"sessionId": session_id}).get("current") or {}
+            if current:
+                auto["model"] = f"{current.get('provider')}/{current.get('model')}"
+    if arguments.get("permission"):
+        auto["permissionSet"] = arguments["permission"]
+    return auto
+
+
+def _auto_facts(state: State, tool: str, arguments: dict, result: object, session_id: str) -> dict:
+    """The facts about a worker that one successful tool call established."""
+    if tool == "dsh_create" and isinstance(result, dict):
+        return _created_facts(state, arguments, result, session_id)
+    if tool == "dsh_name" and isinstance(result, dict):
+        return {"name": result.get("title")}
+    if tool == "dsh_permission" and arguments.get("preset"):
+        return {"permissionSet": arguments["preset"]}
+    return {}
+
+
+def _enriched_result(state: State, tool: str, arguments: dict, session_id: str,
+                     result: object) -> dict | None:
+    """The result with more in it, for the two tools whose output is enriched. Otherwise None."""
+    if not isinstance(result, dict):
+        return None
+    # Opt-in: a wait that ended a turn can carry the digest, so the usual
+    # wait-then-status-then-grep sequence becomes one call.
+    if (tool == "dsh_wait" and arguments.get("digest") and result.get("completed")
+            and not result.get("blocked")):
+        return {**result, "digest": digest_for(state, session_id, observe=False)}
+    stalled = state.session_state(session_id).get("compaction", {}).get("stalled")
+    if tool == "dsh_status" and stalled:
+        return {**result, "compactionStalled": stalled}
+    return None
+
+
 def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | list | None:
     """
     Record what a successful tool call established. Returns the (possibly
@@ -671,64 +761,63 @@ def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | li
         result = None
 
     if tool == "dsh_list" and isinstance(result, list):
-        summaries = state.client.rpc("session.list").get("items", [])
-        report = state.reconcile(summaries)
-        listed = {row["sessionId"] for row in result}
-        for row in result:
-            if row["sessionId"] in report:
-                row["roster"] = report[row["sessionId"]]
-        for sid, entry in report.items():
-            if sid not in listed and entry.get("missing"):
-                result.append({"sessionId": sid, "roster": entry})
-        return result
-
+        return _annotate_list(state, result)
     if tool not in OBSERVING:
         return None
     session_id = _session_of(arguments, result, state.client)
     if not session_id:
         return None
-
     if tool in ADOPTING:
         state.adopt(session_id, how=tool)
     if not state.is_managed(session_id):
         return None
 
-    auto: dict = {}
-    if tool == "dsh_create" and isinstance(result, dict):
-        auto["createdAt"] = now_iso()
-        if result.get("selectedModel"):
-            auto["model"] = result["selectedModel"]
-        else:
-            with contextlib.suppress(dshctl.RpcError):
-                current = state.client.rpc("session.models", {"sessionId": session_id}).get("current") or {}
-                if current:
-                    auto["model"] = f"{current.get('provider')}/{current.get('model')}"
-        if arguments.get("permission"):
-            auto["permissionSet"] = arguments["permission"]
-    elif tool == "dsh_name" and isinstance(result, dict):
-        auto["name"] = result.get("title")
-    elif tool == "dsh_permission" and arguments.get("preset"):
-        auto["permissionSet"] = arguments["preset"]
+    auto = _auto_facts(state, tool, arguments, result, session_id)
     if auto:
         state._update_worker(session_id, auto=auto)
-
     if tool == "dsh_task" and arguments.get("task_id") and isinstance(result, dict):
         state.record_dispatch(arguments["task_id"], session_id, arguments.get("prompt", ""),
                               arguments.get("mode", "queue"), result.get("seqBefore"),
                               facts=dispatch_facts(state, session_id))
-
     blocked = result.get("pending") if isinstance(result, dict) and result.get("blocked") else None
-    state.observe(session_id, blocked=blocked,
-                  unblocked=tool in ("dsh_answer", "dsh_approve"))
-    # Opt-in: a wait that ended a turn can carry the digest, so the usual
-    # wait-then-status-then-grep sequence becomes one call.
-    if tool == "dsh_wait" and arguments.get("digest") and isinstance(result, dict) \
-            and result.get("completed") and not result.get("blocked"):
-        return {**result, "digest": digest_for(state, session_id, observe=False)}
-    stalled = state.session_state(session_id).get("compaction", {}).get("stalled")
-    if tool == "dsh_status" and stalled and isinstance(result, dict):
-        return {**result, "compactionStalled": stalled}
-    return None
+    state.observe(session_id, blocked=blocked, unblocked=tool in ("dsh_answer", "dsh_approve"))
+    return _enriched_result(state, tool, arguments, session_id, result)
+
+
+def _mirrored_events(state: State, session_id: str) -> list[dict]:
+    path = state.session_dir(session_id) / "events.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def _check_patterns(state: State) -> tuple[list[str], list[str]]:
+    """The project's extra check regexes from `checks.txt`, as (valid, invalid)."""
+    patterns: list[str] = []
+    bad: list[str] = []
+    checks_file = state.root / "checks.txt"
+    lines = checks_file.read_text().splitlines() if checks_file.exists() else []
+    for line in (raw.strip() for raw in lines):
+        if not line or line.startswith("#"):
+            continue
+        try:
+            re.compile(line)
+            patterns.append(line)
+        except re.error:
+            bad.append(line)
+    return patterns, bad
+
+
+def _digest_task(state: State, session_id: str, task_id: str | None) -> dict | None:
+    """The task that a digest is about: the one named, else the worker's current or last."""
+    auto = (state.roster()["workers"].get(session_id) or {}).get("auto", {})
+    task_id = task_id or auto.get("currentTask") or auto.get("lastTask")
+    if not task_id:
+        return None
+    task = state.tasks()["tasks"].get(task_id)
+    if task is None:
+        raise dshctl.RpcError(f"no task {task_id!r}")
+    return task
 
 
 def digest_for(state: State, session_id: str, turns: int = 1,
@@ -740,28 +829,12 @@ def digest_for(state: State, session_id: str, turns: int = 1,
     if observe:  # bring the mirror up to date; if dsh is down, use what is mirrored
         with contextlib.suppress(dshctl.RpcError):
             state.observe(session_id)
-    path = state.session_dir(session_id) / "events.jsonl"
-    events = [json.loads(line) for line in path.read_text().splitlines()
-              if line.strip()] if path.exists() else []
-    auto = (state.roster()["workers"].get(session_id) or {}).get("auto", {})
-    task_id = task_id or auto.get("currentTask") or auto.get("lastTask")
-    task = state.tasks()["tasks"].get(task_id) if task_id else None
-    if task_id and task is None:
-        raise dshctl.RpcError(f"no task {task_id!r}")
+    task = _digest_task(state, session_id, task_id)
     worktree = (task or {}).get("worktree")
-    patterns, bad = [], []
-    checks_file = state.root / "checks.txt"
-    if checks_file.exists():
-        for line in checks_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#"):
-                try:
-                    re.compile(line)
-                    patterns.append(line)
-                except re.error:
-                    bad.append(line)
-    result = digest_mod.build(events, turns=max(int(turns), 1), worktree=worktree,
-                              acceptance=(task or {}).get("acceptance"), patterns=patterns)
+    patterns, bad = _check_patterns(state)
+    result = digest_mod.build(_mirrored_events(state, session_id), turns=max(int(turns), 1),
+                              worktree=worktree, acceptance=(task or {}).get("acceptance"),
+                              patterns=patterns)
     if task:
         result = {"task": task["id"], **result}
         dispatches = [d for d in task.get("dispatches", []) if d.get("gitBefore")]
