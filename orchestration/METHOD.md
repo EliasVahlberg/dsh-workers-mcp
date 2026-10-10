@@ -228,7 +228,10 @@ job. Say so in its brief.
 A merge can change something that another worker depends on (an interface, a
 shared file, a convention). When it does, send that worker a short note with
 `dsh_task mode=queue`. State what changed, the commit, and whether the worker
-must rebase. When a decision changes the standing orientation of a worker, tell
+must rebase. A queued note runs as a turn of its own, after the current turn. If
+the worker finishes its task first, `latestReply` then shows the reply to your
+note, and the task report is one turn back. Read the report first, then queue the
+note. If the note is already queued, find the report with `dsh_grep`. When a decision changes the standing orientation of a worker, tell
 the worker plainly and point at the `DECISIONS.md` entry, so that it can read the
 entry again after a compaction.
 

@@ -171,7 +171,9 @@ Mechanics:
   - A well-specified task (a change to constants, a mechanical change) may not
     need the highest effort or the largest model. Debugging, design and
     load-bearing shared code may need them. Do not put a stronger model on a
-    whole feature next to a cheaper model that edits the same files.
+    whole feature while a cheaper model edits the same files in the same round
+    (while both tasks are open). Files that an earlier task changed and merged need
+    no such care.
   - `PROJECT.md` lists the models on offer, their prices, and which choices are
     yours.
   - A switch changes only that worker. The server restores the global default.

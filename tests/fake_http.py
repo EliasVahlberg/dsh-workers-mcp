@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fakes import FakeDsh
@@ -28,6 +29,7 @@ class FakeHttpDsh:
         self.fake = fake
         self.http_error: tuple[int, str] | None = None     # answer every POST with this status
         self.refuse_upgrade = False                         # answer a WebSocket GET with 426
+        self.upgrade_delay = 0.0                            # seconds to wait before the 101 answer
         self.requests: list[str] = []                       # paths seen, in order
         outer = self
 
@@ -62,6 +64,7 @@ class FakeHttpDsh:
                 if outer.refuse_upgrade or self.headers.get("Upgrade", "").lower() != "websocket":
                     self._send(426, b"upgrade required")
                     return
+                time.sleep(outer.upgrade_delay)
                 self.wfile.write(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
                                  b"Connection: Upgrade\r\n\r\n")
                 for frame in outer.fake.frames:

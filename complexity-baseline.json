@@ -27,6 +27,6 @@
   "src/dsh_workers_mcp/state/usage.py::usage_report": 11,
   "src/dsh_workers_mcp/transport.py::_ws_frames": 11,
   "src/dsh_workers_mcp/waiting.py::turn_end_seq": 12,
-  "src/dsh_workers_mcp/waiting.py::wait_for_any": 16,
-  "src/dsh_workers_mcp/waiting.py::wait_for_turn_end": 15
+  "src/dsh_workers_mcp/waiting.py::wait_for_any": 14,
+  "src/dsh_workers_mcp/waiting.py::wait_for_turn_end": 13
 }

@@ -56,7 +56,10 @@ They keep a long-lived roster readable.
 
 The delegation pattern: call `dsh_task` to dispatch. Then call `dsh_status` to
 poll `state` until it changes from `running` to `idle`. Then read
-`latestReply`. The lead is never blocked while a worker runs.
+`latestReply`. The lead is never blocked while a worker runs. A note that you
+queue to a running worker is a turn of its own. When it runs after the task
+report, `latestReply` shows the note's reply. Read the report before you queue a
+note.
 
 When you have nothing else to do, prefer `dsh_wait` to a polling loop. Polling
 costs one lead turn for each check, and lead turns are the expensive resource.

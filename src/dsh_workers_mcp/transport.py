@@ -33,6 +33,8 @@ from collections.abc import Iterator
 from typing import Any, Protocol
 
 DEFAULT_BASE = "http://127.0.0.1:3080"
+# The least time that a WebSocket handshake may take before it counts as failed.
+HANDSHAKE_SECONDS = 5.0
 
 
 class RpcError(RuntimeError):
@@ -144,7 +146,14 @@ class HttpClient:
 
 
 def _ws_connect(path: str, base: str, timeout: float):
-    """Handshake a WebSocket and return (socket, buffered_reader)."""
+    """
+    Handshake a WebSocket and return (socket, buffered_reader).
+
+    `timeout` is how long a read may stay quiet once the stream is open. The handshake
+    gets at least HANDSHAKE_SECONDS, because a dsh that runs many workers can take
+    longer than a short settle time to answer. A handshake that still fails raises RpcError.
+    """
+    handshake = max(timeout, HANDSHAKE_SECONDS)
     parsed = urllib.parse.urlsplit(base)
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -161,23 +170,36 @@ def _ws_connect(path: str, base: str, timeout: float):
         "\r\n"
     )
     try:
-        sock = socket.create_connection((host, port), timeout=timeout)
+        sock = socket.create_connection((host, port), timeout=handshake)
     except OSError as exc:
         raise RpcError(
             f"{path}: cannot reach {base} ({exc}) — is `dsh web` running?") from exc
-    sock.settimeout(timeout)
-    sock.sendall(request.encode())
+    sock.settimeout(handshake)
     reader = sock.makefile("rb")
-    status = reader.readline().decode("latin-1").strip()
-    if "101" not in status:
+    try:
+        _ws_upgrade(sock, reader, request, path)
+    except OSError as exc:                           # includes TimeoutError
         sock.close()
-        raise RpcError(f"{path}: WebSocket upgrade refused ({status!r})")
-    while True:                                  # drain the response headers
-        line = reader.readline()
-        if line in (b"\r\n", b"\n", b""):
-            break
+        raise RpcError(f"{path}: the WebSocket handshake with {base} failed ({exc!r}). "
+                       f"dsh may be busy.") from exc
+    except RpcError:
+        sock.close()
+        raise
+    sock.settimeout(timeout)                         # from here on, a quiet read ends the stream
     # The Sec-WebSocket-Accept key is not checked: the server is on loopback.
     return sock, reader
+
+
+def _ws_upgrade(sock, reader, request: str, path: str) -> None:
+    """Send the upgrade request and read the answer up to the end of its headers."""
+    sock.sendall(request.encode())
+    status = reader.readline().decode("latin-1").strip()
+    if "101" not in status:
+        raise RpcError(f"{path}: WebSocket upgrade refused ({status!r})")
+    while True:                                      # drain the response headers
+        line = reader.readline()
+        if line in (b"\r\n", b"\n", b""):
+            return
 
 
 def _ws_frames(reader, deadline: float) -> Iterator[str]:

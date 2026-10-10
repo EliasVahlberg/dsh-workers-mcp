@@ -62,3 +62,23 @@ def test_stream_raises_when_the_server_refuses_the_upgrade(served) -> None:
     server.refuse_upgrade = True
     with pytest.raises(RpcError, match="upgrade refused"):
         client.stream("/api/events.mux", settle=1.0, max_seconds=2.0)
+
+
+def test_a_slow_handshake_is_not_a_failure_when_it_fits_the_time(served, monkeypatch) -> None:
+    """From testing: dsh answered the upgrade slowly while many workers ran. A short settle time cut it."""
+    from dsh_workers_mcp import transport
+    fake, server, client = served
+    fake.frames = [{"rpcId": "r1", "payload": {"type": "question/requested"}}]
+    server.upgrade_delay = 0.4
+    monkeypatch.setattr(transport, "HANDSHAKE_SECONDS", 3.0)
+    frames = client.stream("/api/events.mux", settle=0.1, max_seconds=3.0)
+    assert [f["rpcId"] for f in frames] == ["r1"]
+
+
+def test_a_handshake_that_never_finishes_is_an_rpc_error(served, monkeypatch) -> None:
+    from dsh_workers_mcp import transport
+    _fake, server, client = served
+    server.upgrade_delay = 1.5
+    monkeypatch.setattr(transport, "HANDSHAKE_SECONDS", 0.2)
+    with pytest.raises(RpcError, match="handshake.*failed"):
+        client.stream("/api/events.mux", settle=0.1, max_seconds=2.0)

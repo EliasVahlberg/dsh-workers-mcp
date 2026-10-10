@@ -699,6 +699,54 @@ def test_wait_any_times_out_naming_who_is_still_running(monkeypatch) -> None:
     assert out["timedOut"] is True and out["stillRunning"] == ["s1", "s2"]
 
 
+def _failing_pending(monkeypatch, failures: int) -> None:
+    """pending_requests raises RpcError `failures` times, then reports nothing pending."""
+    calls = {"n": 0}
+
+    def check(*a, **k):
+        calls["n"] += 1
+        if calls["n"] <= failures:
+            raise transport.RpcError("/api/events.mux: the WebSocket handshake failed (TimeoutError())")
+        return []
+    monkeypatch.setattr(pending, "pending_requests", check)
+
+
+def test_wait_any_survives_a_failed_pending_check(monkeypatch) -> None:
+    """From testing: a handshake timeout while workers ran test suites ended the whole wait."""
+    _fake_workers(monkeypatch, {"s1": True, "s2": True}, {"s1": [50, 50, 50], "s2": [50, 50, 101]})
+    _failing_pending(monkeypatch, failures=1)
+    out = waiting.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
+    assert out["sessionId"] == "s2" and out["completed"] is True
+
+
+def test_wait_any_says_when_it_could_not_check_for_pending_requests(monkeypatch) -> None:
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(time, "time", lambda: next(clock))
+    _fake_workers(monkeypatch, {"s1": True, "s2": True}, {})
+    _failing_pending(monkeypatch, failures=99)
+    out = waiting.wait_for_any(["s1", "s2"], "b", timeout=30, poll=0)
+    assert out["timedOut"] is True and out["pendingChecksFailed"] >= 1
+
+
+def test_wait_for_a_turn_survives_a_failed_pending_check(monkeypatch) -> None:
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(time, "time", lambda: next(clock))
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    monkeypatch.setattr(sessions, "find_session", lambda *a, **k: {"running": True})
+    monkeypatch.setattr(sessions, "fetch_events", lambda *a, **k: [])
+    _failing_pending(monkeypatch, failures=99)
+    completed, info = waiting.wait_for_turn_end("s1", "b", 0, timeout=30, poll=0, watch_pending=True)
+    assert completed is False and info["timedOut"] is True and info["pendingChecksFailed"] >= 1
+
+
+def test_a_wait_without_failures_has_no_degraded_note(monkeypatch) -> None:
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(time, "time", lambda: next(clock))
+    _fake_workers(monkeypatch, {"s1": True, "s2": True}, {})
+    out = waiting.wait_for_any(["s1", "s2"], "b", timeout=30, poll=0)
+    assert "pendingChecksFailed" not in out
+
+
 def test_cmd_wait_with_one_session_keeps_the_single_path(monkeypatch, capsys) -> None:
     _fake_workers(monkeypatch, {"s1": False}, {})
     dshctl.cmd_wait(_Args(session=["s1"], after=None, timeout=1.0, poll=0, client=None))
