@@ -1,47 +1,53 @@
-# Project conventions — <project>
+# Project conventions: <project>
 
-Instance file for `orchestration/METHOD.md`. The lead and the user maintain it.
-Keep it to facts a worker or a new lead session needs.
+This is the instance file for `orchestration/METHOD.md`. The lead and the user
+maintain it. Write only facts that a worker or a new lead session needs.
 
 ## Where things are
 
-- Workspace root (worker `cwd`): `<path>`
-- Vision / design docs: `<paths>`, and which to read first
-- Status / roadmap: `<path>`
+- Workspace root (the worker `cwd`): `<path>`
+- Vision and design documents: `<paths>`, and which to read first
+- Status or roadmap: `<path>`
 
 ## Repositories and branches
 
 | Repo | Path | Default branch | Remote |
 |---|---|---|---|
 
-Worktree convention: `<how to create one, where it lives, what to copy in>`
+Worktree convention: `<how to create a worktree, where it lives, and what to
+copy into it>`
 
 ## Build and test
 
 - Build: `<command>`
 - Test: `<command>`
 - Known traps: `<…>`
-- Found only by hand: `<paths a headless suite cannot reach, e.g. rendering, a real
-  browser, a device. List them so a green suite is not read as covering them, and
-  keep any source-shape guard in the project, not here>`
-- Checks the digest should recognise: the digest (`dsh_digest`) already knows common
-  runners (`pytest`, `make test`, `gradle test`, `npm test`, `cargo test`, `go test`,
-  linters) and any backticked command in a task's acceptance line. List other
-  project check commands, one regex per line, in `.orchestrator/checks.txt`.
+- Found only by hand: `<Paths that a headless suite cannot reach, for example
+  rendering, a real browser or a device. List them, so that nobody reads a
+  green suite as covering them. Keep any source-shape guard in the project,
+  not here.>`
+- Checks that the digest should recognise: `dsh_digest` already knows common
+  runners (`pytest`, `make test`, `gradle test`, `npm test`, `cargo test`,
+  `go test`, linters) and any backticked command in a task's acceptance line.
+  List other check commands of the project in `.orchestrator/checks.txt`, one
+  regex per line.
 
 ## What the lead may do without asking
 
-Default (METHOD, *Deciding, and escalating*): everything not listed under
-"What needs the user", including design calls within the docs. List here only
-what is worth stating explicitly, and the checks that gate it.
+Default (METHOD, *Deciding, and escalating*): the lead may do everything that
+is not under "What needs the user", including design decisions that the
+documents cover. List here only what is worth stating, and the checks that
+gate it.
 
-- `<e.g. merge verified branches into main>`
-- `<e.g. push main of a private repo, when: full suite green on the merge, the
-  remote has not moved, the repo is private, nothing secret in the range>`
-- `<e.g. start the next roadmap item without asking>`
+- `<for example: merge verified branches into main>`
+- `<for example: push main of a private repo, when the full suite is green on
+  the merge, the remote has not moved, the repo is private, and the range has
+  no secret>`
+- `<for example: start the next roadmap item without asking>`
 
 ## What needs the user
 
-Keep it short. Every line here is a place the team stops and waits.
+Keep this list short. At every line, the team stops and waits.
 
-- `<e.g. releases, tags, making a repo public, anything that opens a GUI or a browser window>`
+- `<for example: releases, tags, making a repo public, anything that opens a GUI
+  or a browser window>`
