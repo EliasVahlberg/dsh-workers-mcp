@@ -39,11 +39,8 @@ import time
 from pathlib import Path
 from collections.abc import Callable
 
-try:
-    from dsh_workers_mcp import brief, state as st
-except ImportError:  # pragma: no cover - script mode
-    import brief  # type: ignore[no-redef]
-    import state as st  # type: ignore[no-redef]
+from dsh_workers_mcp import brief, state as st
+from dsh_workers_mcp.transport import HttpClient
 
 DEFAULT_PROMPT = ("Continue the milestone. Call dsh_brief first and act on needsAction. "
                   "Read orchestration/REMINDER.md if you have lost the method.")
@@ -142,9 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="one pass; print the command, run nothing")
     args = p.parse_args(argv)
     args.state_dir = str(st.resolve_state_dir(args.state_dir))
-    state = st.State(Path(args.state_dir))
-    if args.base:
-        state.base = args.base
+    state = st.State(Path(args.state_dir), client=HttpClient(args.base) if args.base else None)
 
     def get_needs() -> list[str] | None:
         try:

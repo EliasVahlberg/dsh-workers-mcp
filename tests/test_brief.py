@@ -5,8 +5,10 @@ import json
 import subprocess
 
 import pytest
+from fakes import ScriptedClient
 
-from dsh_workers_mcp import brief, dshctl, server, state as st
+from dsh_workers_mcp import brief, server, state as st
+from dsh_workers_mcp.transport import RpcError
 
 A, B, C, D = ("session-aaaa1111", "session-bbbb2222", "session-cccc3333", "session-dddd4444")
 
@@ -116,8 +118,7 @@ def _hook(state, body: str, mode: int = 0o755) -> None:
 
 
 def test_the_project_hook_adds_lines_and_is_optional(state, monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: {"items": []})
-    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [])
+    state.client = ScriptedClient(rpc=lambda *a: {"items": []}, stream=lambda path: [])
     assert "project" not in brief.cmd_brief(state, {})                   # no hook: fine
     _hook(state, "#!/bin/sh\necho \"orch=$ORCHESTRATOR_DIR\"\npwd\n")
     lines = brief.cmd_brief(state, {})["project"]
@@ -145,10 +146,10 @@ def test_live_brief_refreshes_reads_pending_and_reports_drift(state, monkeypatch
     worker(state, A, "implementer", task="T-001")
     worker(state, B, "reviewer")
     state._update_worker(A, auto={"permissionSet": "read-only"})   # we set it; dsh differs
-    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: {"items": [_summary(A)]})  # B is gone
+    # B is gone from dsh; A has a pending approval
+    frame = {"rpcId": "r1", "payload": {"type": "approval/requested", "sessionId": A, "toolName": "bash"}}
+    state.client = ScriptedClient(rpc=lambda *a: {"items": [_summary(A)]}, stream=lambda path: [frame])
     monkeypatch.setattr(st.State, "observe", lambda self, sid, summary=None, **k: {})
-    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [
-        {"kind": "approval/requested", "rpcId": "r1", "sessionId": A, "toolName": "bash"}])
 
     out = brief.cmd_brief(state, {})
     assert out["dsh"] == "up"
@@ -162,20 +163,20 @@ def test_with_dsh_down_the_brief_answers_from_state_and_says_so(state, monkeypat
     worker(state, A, "implementer", running=True, task="T-001")
 
     def down(*args, **kwargs):
-        raise dshctl.RpcError("connection refused")
-    monkeypatch.setattr(dshctl, "rpc", down)
+        raise RpcError("connection refused")
+    state.client = ScriptedClient(rpc=down)
     out = brief.cmd_brief(state, {})
     assert out["dsh"].startswith("unreachable") and out["workers"]
 
 
 def test_unreadable_pending_is_flagged_not_hidden(state, monkeypatch) -> None:
     worker(state, A, "implementer", running=True, task="T-001")
-    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: {"items": [_summary(A)]})
+    client_rpc = lambda *a: {"items": [_summary(A)]}  # noqa: E731
     monkeypatch.setattr(st.State, "observe", lambda self, sid, summary=None, **k: {})
 
     def broken(*args, **kwargs):
-        raise dshctl.RpcError("no stream")
-    monkeypatch.setattr(dshctl, "pending_requests", broken)
+        raise RpcError("no stream")
+    state.client = ScriptedClient(rpc=client_rpc, stream=broken)
     assert "could not read dsh_pending: call it yourself" in brief.cmd_brief(state, {})["needsAction"]
 
 
@@ -184,8 +185,7 @@ def test_live_false_touches_nothing(state, monkeypatch) -> None:
 
     def boom(*args, **kwargs):
         raise AssertionError("must not call dsh")
-    monkeypatch.setattr(dshctl, "rpc", boom)
-    monkeypatch.setattr(dshctl, "pending_requests", boom)
+    state.client = ScriptedClient(rpc=boom, stream=boom)
     out = brief.cmd_brief(state, {"live": False})
     assert out["dsh"].startswith("not checked") and out["needsAction"] == []
 

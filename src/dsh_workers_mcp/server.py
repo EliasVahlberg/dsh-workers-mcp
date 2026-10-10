@@ -20,16 +20,17 @@ import sys
 import time
 import traceback
 
-try:  # installed as a package
-    from dsh_workers_mcp import brief as brief_mod, dshctl, state as state_mod
-except ImportError:  # run directly as a script from this directory
-    import brief as brief_mod  # type: ignore[no-redef]
-    import dshctl  # type: ignore[no-redef]
-    import state as state_mod  # type: ignore[no-redef]
+from dsh_workers_mcp import brief as brief_mod
+from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import state as state_mod
+from dsh_workers_mcp.shape import CheckedClient
+from dsh_workers_mcp.transport import DshClient, HttpClient
 
 # The orchestrator state directory (see state.py). Set by main(); None disables
 # state recording entirely, which is also what a bare import / the tests get.
 STATE: state_mod.State | None = None
+# The client that the dshctl commands behind the tools use. Tests replace it.
+CLIENT: DshClient = CheckedClient(HttpClient())
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "dsh-workers", "version": "0.1.0"}
@@ -590,7 +591,7 @@ class Args:
     """dshctl's command functions take an argparse namespace; this stands in."""
 
     def __init__(self, **kwargs):
-        self.base = dshctl.DEFAULT_BASE
+        self.client = CLIENT
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -808,7 +809,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.allow_full_access:
         FORBIDDEN_PRESETS.clear()
     if not args.no_state:
-        STATE = state_mod.State(state_mod.resolve_state_dir(args.state_dir))
+        STATE = state_mod.State(state_mod.resolve_state_dir(args.state_dir), client=CLIENT)
         print(f"dsh-workers: state dir {STATE.root}", file=sys.stderr)
 
     for line in sys.stdin:

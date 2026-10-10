@@ -15,104 +15,6 @@ import pytest
 from dsh_workers_mcp import dshctl, server, state as st
 
 
-class FakeDsh:
-    def __init__(self) -> None:
-        self.sessions: dict[str, dict] = {}
-        self.events: dict[str, list[dict]] = {}
-        self.prompts: list[tuple[str, str]] = []
-        self.clock = 1_790_000_000_000
-
-    def add(self, sid: str, title: str = "t", preset: str = "supervised") -> str:
-        self.sessions[sid] = {"sessionId": sid, "running": False, "cwd": "/w",
-                              "agentPreset": "standard", "blank": False,
-                              "projections": {"values": {
-                                  "title": title,
-                                  "permissions": {"currentValue": preset},
-                                  "sessionStats": {"turns": 0, "steps": 0},
-                                  "contextPressure": {"contextWindow": 1000,
-                                                      "pressureTokens": 100}}}}
-        self.events[sid] = []
-        return sid
-
-    def emit(self, sid: str, etype: str, data: dict) -> dict:
-        self.clock += 1000
-        event = {"seq": len(self.events[sid]), "time": self.clock, "type": etype,
-                 "data": data}
-        self.events[sid].append(event)
-        return event
-
-    def tool(self, sid: str, turn: int, name: str, args: dict, result: str,
-             error: bool = False) -> None:
-        """One tool call and its result, the way dsh logs them."""
-        cid = f"call_{len(self.events[sid])}"
-        self.emit(sid, "tool/call", {"turn": turn, "step": 1, "callId": cid, "name": name,
-                                     "arguments": json.dumps(args)})
-        self.emit(sid, "tool/result", {"turn": turn, "step": 1, "message": {
-            "source": {"kind": "tool", "callId": cid},
-            "content": [{"type": "tool-result", "toolCallId": cid, "isError": error,
-                         "content": [{"type": "text", "text": result}]}]}})
-
-    def end_turn(self, sid: str, turn: int, kind: str = "completed") -> None:
-        self.emit(sid, "turn/end", {"turn": turn, "reason": {"kind": kind}})
-
-    def turn(self, sid: str, prompt: str, reply: str, kind: str = "completed") -> None:
-        self.emit(sid, "user/message", {"content": [{"type": "text", "text": prompt}],
-                                        "source": {"kind": "user"}})
-        self.emit(sid, "user/message", {"content": [{"type": "text", "text": "runtime ctx"}],
-                                        "source": {"kind": "plugin"}})
-        self.emit(sid, "assistant/chunk", {"delta": reply[:3]})
-        self.emit(sid, "assistant/message", {"message": {"role": "assistant",
-                                                         "content": [{"type": "text",
-                                                                      "text": reply}]}})
-        self.emit(sid, "turn/end", {"reason": {"kind": kind}})
-
-    def rpc(self, method: str, payload: dict | None = None, base: str = "", timeout=0):
-        payload = payload or {}
-        if method == "session.list":
-            return {"items": list(self.sessions.values())}
-        sid = payload.get("sessionId")
-        if method == "session.history":
-            events = self.events[sid]
-            before = payload.get("beforeSeq")
-            pool = [e for e in events if before is None or e["seq"] < before]
-            page = pool[-payload.get("maxMessages", 40):]
-            value = {"events": [{"event": e} for e in page],
-                     "hasMore": bool(page) and page[0]["seq"] > 0}
-            if before is None:
-                value["projections"] = {"asOfSeq": events[-1]["seq"] if events else -1}
-            return value
-        if method == "session.prompt":
-            self.prompts.append((sid, payload["content"][0]["text"]))
-            self.emit(sid, "user/message", {"content": payload["content"],
-                                            "source": {"kind": "user"}})
-            self.sessions[sid]["running"] = True
-            return {}
-        if method == "session.create":
-            new = self.add(payload.get("sessionId") or f"session-new{len(self.sessions)}")
-            return {"sessionId": new}
-        if method == "session.models":
-            return {"current": {"provider": "deepseek-official", "model": "deepseek-flash",
-                                "reasoningEffort": "high"}}
-        if method == "session.rename":
-            self.sessions[sid]["projections"]["values"]["title"] = payload["title"]
-            return {"title": payload["title"], "seq": self.emit(sid, "session/title", {})["seq"]}
-        raise AssertionError(f"fake has no {method}")
-
-
-@pytest.fixture
-def dsh(monkeypatch) -> FakeDsh:
-    fake = FakeDsh()
-    monkeypatch.setattr(dshctl, "rpc", fake.rpc)
-    return fake
-
-
-@pytest.fixture
-def state(tmp_path, monkeypatch) -> st.State:
-    s = st.State(tmp_path / "orch")
-    monkeypatch.setattr(server, "STATE", s)
-    return s
-
-
 def call(name: str, arguments: dict) -> dict:
     return server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                           "params": {"name": name, "arguments": arguments}})["result"]
@@ -686,16 +588,11 @@ def brief_lines(state) -> list[str]:
     return brief.build(state)["openTasks"]
 
 
-def test_fields_dsh_does_not_provide_are_omitted_not_invented(dsh, state, monkeypatch) -> None:
+def test_fields_dsh_does_not_provide_are_omitted_not_invented(dsh, state) -> None:
     sid = dsh.add("session-aaaa1111")
     dsh.sessions[sid]["projections"]["values"].pop("sessionStats")   # dsh reports no stats
+    dsh.failing["session.models"] = "no models"
     tid = _task()
-
-    def models_down(method, payload=None, base="", timeout=0):
-        if method == "session.models":
-            raise dshctl.RpcError("no models")
-        return dsh.rpc(method, payload, base, timeout)
-    monkeypatch.setattr(dshctl, "rpc", models_down)
     call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": tid})
     dispatch = state.tasks()["tasks"][tid]["dispatches"][0]
     assert "model" not in dispatch and "effort" not in dispatch

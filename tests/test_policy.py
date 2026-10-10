@@ -7,17 +7,15 @@ fails the test.
 from __future__ import annotations
 
 import pytest
+from fakes import ScriptedClient
 
-from dsh_workers_mcp import dshctl, server
+from dsh_workers_mcp import server
 
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    def forbidden(*_a, **_k):
-        raise AssertionError("a refused call must not reach dsh")
-
-    monkeypatch.setattr(dshctl, "rpc", forbidden)
-    monkeypatch.setattr(dshctl, "execute_command", forbidden)
+    """A client with no callables: any call that reaches dsh fails the test."""
+    monkeypatch.setattr(server, "CLIENT", ScriptedClient())
     monkeypatch.setattr(server, "STATE", None)
     monkeypatch.setattr(server, "FORBIDDEN_PRESETS", {"danger-full-access"})
 

@@ -42,12 +42,9 @@ try:  # POSIX advisory locks; two orchestrator sessions may share a state dir
 except ImportError:  # pragma: no cover - non-POSIX: best effort, no locking
     fcntl = None  # type: ignore[assignment]
 
-try:
-    from dsh_workers_mcp import dshctl
-    from dsh_workers_mcp import digest as digest_mod
-except ImportError:  # pragma: no cover - script mode
-    import dshctl  # type: ignore[no-redef]
-    import digest as digest_mod  # type: ignore[no-redef]
+from dsh_workers_mcp import digest as digest_mod
+from dsh_workers_mcp import dshctl
+from dsh_workers_mcp.transport import DshClient, HttpClient
 
 DEFAULT_DIRNAME = ".orchestrator"
 
@@ -178,9 +175,9 @@ def short(session_id: str) -> str:
 class State:
     """One orchestrator state directory. Created lazily on first write."""
 
-    def __init__(self, root: Path | str, base: str = dshctl.DEFAULT_BASE):
+    def __init__(self, root: Path | str, client: DshClient | None = None):
         self.root = Path(root)
-        self.base = base
+        self.client: DshClient = client or HttpClient()
 
     # paths
     @property
@@ -341,7 +338,7 @@ class State:
                                  "maxMessages": HISTORY_PAGE_MESSAGES}
                 if before is not None:
                     payload["beforeSeq"] = before
-                value = dshctl.rpc("session.history", payload, base=self.base)
+                value = self.client.rpc("session.history", payload)
                 raw = [e.get("event", e) for e in value.get("events", [])]
                 if not raw:
                     complete = True
@@ -382,7 +379,7 @@ class State:
         if not self.is_managed(session_id):
             return {}
         synced = self.sync_history(session_id)
-        summary = summary or dshctl.find_session(session_id, self.base)
+        summary = summary or dshctl.find_session(session_id, self.client)
         values = dshctl.projections(summary)
         stats = values.get("sessionStats") or {}
         pressure = values.get("contextPressure") or {}
@@ -639,13 +636,13 @@ class State:
 
 # --------------------------------------------------------- tool-level hooks
 
-def _session_of(arguments: dict, result: object, base: str) -> str | None:
+def _session_of(arguments: dict, result: object, client: DshClient) -> str | None:
     if isinstance(result, dict) and isinstance(result.get("sessionId"), str):
         return result["sessionId"]
     ref = arguments.get("session")
     if not ref:
         return None
-    return dshctl.find_session(ref, base)["sessionId"]
+    return dshctl.find_session(ref, client)["sessionId"]
 
 
 # Tools whose call means "this session is doing work for us": adopt it.
@@ -659,7 +656,7 @@ OBSERVING = {"dsh_create", "dsh_task", "dsh_ask", "dsh_wait", "dsh_status",
 def before_call(state: State, tool: str, arguments: dict) -> None:
     """Validation that must happen before a tool acts. Raises to refuse the call."""
     if tool == "dsh_task" and arguments.get("task_id"):
-        session_id = dshctl.find_session(arguments["session"], state.base)["sessionId"]
+        session_id = dshctl.find_session(arguments["session"], state.client)["sessionId"]
         state.check_dispatch(arguments["task_id"], session_id)
 
 
@@ -674,7 +671,7 @@ def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | li
         result = None
 
     if tool == "dsh_list" and isinstance(result, list):
-        summaries = dshctl.rpc("session.list", base=state.base).get("items", [])
+        summaries = state.client.rpc("session.list").get("items", [])
         report = state.reconcile(summaries)
         listed = {row["sessionId"] for row in result}
         for row in result:
@@ -687,7 +684,7 @@ def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | li
 
     if tool not in OBSERVING:
         return None
-    session_id = _session_of(arguments, result, state.base)
+    session_id = _session_of(arguments, result, state.client)
     if not session_id:
         return None
 
@@ -703,8 +700,7 @@ def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | li
             auto["model"] = result["selectedModel"]
         else:
             with contextlib.suppress(dshctl.RpcError):
-                current = dshctl.rpc("session.models", {"sessionId": session_id},
-                                     base=state.base).get("current") or {}
+                current = state.client.rpc("session.models", {"sessionId": session_id}).get("current") or {}
                 if current:
                     auto["model"] = f"{current.get('provider')}/{current.get('model')}"
         if arguments.get("permission"):
@@ -780,7 +776,7 @@ def digest_for(state: State, session_id: str, turns: int = 1,
 def cmd_digest(state: State, arguments: dict) -> dict:
     if not arguments.get("session"):
         raise dshctl.RpcError("dsh_digest needs a session")
-    session_id = dshctl.find_session(arguments["session"], state.base)["sessionId"]
+    session_id = dshctl.find_session(arguments["session"], state.client)["sessionId"]
     return digest_for(state, session_id, arguments.get("turns", 1), arguments.get("task_id"))
 
 
@@ -812,7 +808,7 @@ def cmd_roster(state: State, arguments: dict) -> dict:
     action = arguments.get("action", "show")
     if action == "show":
         if arguments.get("session"):
-            session_id = dshctl.find_session(arguments["session"], state.base)["sessionId"]
+            session_id = dshctl.find_session(arguments["session"], state.client)["sessionId"]
             worker = state.roster()["workers"].get(session_id)
             if worker is None:
                 raise dshctl.RpcError(f"{session_id} is not on the roster")
@@ -820,7 +816,7 @@ def cmd_roster(state: State, arguments: dict) -> dict:
         return roster_view(state, arguments.get("include_retired", False))
     if not arguments.get("session"):
         raise dshctl.RpcError(f"action {action!r} needs a session")
-    session_id = dshctl.find_session(arguments["session"], state.base)["sessionId"]
+    session_id = dshctl.find_session(arguments["session"], state.client)["sessionId"]
     if action == "adopt":
         state.adopt(session_id, how="adopt", role=arguments.get("role"))
         state.observe(session_id)
@@ -915,15 +911,14 @@ def dispatch_facts(state: State, session_id: str) -> dict:
     """The worker's model, effort, permission and usage totals at the moment of dispatch."""
     facts: dict = {}
     with contextlib.suppress(dshctl.RpcError):
-        current = dshctl.rpc("session.models", {"sessionId": session_id},
-                             base=state.base).get("current") or {}
+        current = state.client.rpc("session.models", {"sessionId": session_id}).get("current") or {}
         if current.get("model"):
             facts["model"] = (f"{current['provider']}/{current['model']}"
                               if current.get("provider") else current["model"])
         if current.get("reasoningEffort"):
             facts["effort"] = current["reasoningEffort"]
     with contextlib.suppress(dshctl.RpcError):
-        summary = dshctl.find_session(session_id, state.base)
+        summary = dshctl.find_session(session_id, state.client)
         permission = (dshctl.projections(summary).get("permissions") or {}).get("currentValue")
         if permission:
             facts["permission"] = permission
@@ -1013,7 +1008,7 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
     if action == "add":
         owner = arguments.get("owner")
         if owner:
-            owner = dshctl.find_session(owner, state.base)["sessionId"]
+            owner = dshctl.find_session(owner, state.client)["sessionId"]
         return task_ack(state.add_task(arguments.get("title", ""), owner=owner,
                                        acceptance=arguments.get("acceptance"),
                                        depends_on=arguments.get("depends_on"),
@@ -1034,7 +1029,7 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
     if action == "update":
         owner = arguments.get("owner")
         if owner:
-            owner = dshctl.find_session(owner, state.base)["sessionId"]
+            owner = dshctl.find_session(owner, state.client)["sessionId"]
         return task_ack(state.update_task(
             task_id, status=arguments.get("status"), note=arguments.get("note"),
             title=arguments.get("title"), owner=owner,

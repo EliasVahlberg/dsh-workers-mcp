@@ -18,12 +18,8 @@ import datetime as _dt
 import os
 import subprocess
 
-try:
-    from dsh_workers_mcp import digest, dshctl, state as st
-except ImportError:  # pragma: no cover - script mode
-    import digest  # type: ignore[no-redef]
-    import dshctl  # type: ignore[no-redef]
-    import state as st  # type: ignore[no-redef]
+from dsh_workers_mcp import digest, dshctl
+from dsh_workers_mcp import state as st
 
 HOOK_NAME = "brief-extra"       # optional executable in the state dir
 HOOK_TIMEOUT = 10
@@ -35,6 +31,8 @@ ROLE_CHARS = 40
 # first action to take on resume (PLAYBOOKS §5). The brief shows it on the task.
 PARKED = "PARKED on"
 PARKED_CHARS = 160
+SHAPE_DRIFT_NOTE = ("the dsh API differs from the shape that this tool was tested against "
+                    "(see dshShape): tell the user")
 # Statuses in which the worktree is being worked on or looked at: show its size.
 WORKING = {"dispatched", "blocked", "returned", "in-review"}
 
@@ -172,26 +170,29 @@ def run_hook(state: st.State) -> list[str] | None:
                                      if len(lines) > HOOK_MAX_LINES else [])
 
 
+def _refresh(state: st.State) -> tuple[str, list[dict] | None, list[str]]:
+    """Refresh the state from dsh. Returns (dsh status, pending requests or None, drift lines)."""
+    drift: list[str] = []
+    try:
+        summaries = state.client.rpc("session.list").get("items", [])
+        by_id = {s["sessionId"]: s for s in summaries}
+        for session_id, report in state.reconcile(summaries).items():
+            drift += [f"{_short(session_id)}: {d}" for d in report.get("drift", [])]
+        for session_id, worker in state.roster()["workers"].items():
+            if session_id in by_id and not worker["notes"].get("retired"):
+                with contextlib.suppress(dshctl.RpcError):
+                    state.observe(session_id, by_id[session_id])
+        pending = None
+        with contextlib.suppress(dshctl.RpcError, OSError):
+            pending = dshctl.pending_requests(state.client, 1.5, 8.0)
+        return "up", pending, drift
+    except (dshctl.RpcError, OSError):
+        return "unreachable: showing the last observed state", None, drift
+
+
 def cmd_brief(state: st.State, arguments: dict) -> dict:
     live = arguments.get("live", True)
-    pending: list[dict] | None = None
-    dsh = "not checked (live=false)"
-    drift: list[str] = []
-    if live:
-        try:
-            summaries = dshctl.rpc("session.list", base=state.base).get("items", [])
-            dsh = "up"
-            by_id = {s["sessionId"]: s for s in summaries}
-            for session_id, report in state.reconcile(summaries).items():
-                drift += [f"{_short(session_id)}: {d}" for d in report.get("drift", [])]
-            for session_id, worker in state.roster()["workers"].items():
-                if session_id in by_id and not worker["notes"].get("retired"):
-                    with contextlib.suppress(dshctl.RpcError):
-                        state.observe(session_id, by_id[session_id])
-            with contextlib.suppress(dshctl.RpcError, OSError):
-                pending = dshctl.pending_requests(state.base, 1.5, 8.0)
-        except (dshctl.RpcError, OSError):
-            dsh = "unreachable: showing the last observed state"
+    dsh, pending, drift = (_refresh(state) if live else ("not checked (live=false)", None, []))
     result = build(state, pending=pending, dsh=dsh)
     result["needsAction"] += drift
     if live and pending is None and dsh == "up":
@@ -199,4 +200,8 @@ def cmd_brief(state: st.State, arguments: dict) -> dict:
     extra = run_hook(state)
     if extra is not None:
         result["project"] = extra
+    shape: list[str] = getattr(state.client, "drift_lines", list)()
+    if shape:
+        result["dshShape"] = shape
+        result["needsAction"].append(SHAPE_DRIFT_NOTE)
     return result

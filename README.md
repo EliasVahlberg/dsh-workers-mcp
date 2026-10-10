@@ -201,7 +201,7 @@ uv run python scripts/complexity.py
 
 CI runs these on every push and pull request, with the tests on Python 3.10, 3.11, 3.12 and 3.13. The last command is a complexity ratchet. `complexity-baseline.json` records each function with a cyclomatic complexity of 11 or more. A new function above that, or a rise in a recorded one, fails the check. After you lower one, run `uv run python scripts/complexity.py --update` and commit the file.
 
-303 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+317 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious
@@ -211,6 +211,14 @@ CI runs these on every push and pull request, with the tests on Python 3.10, 3.1
 - the rule that no tool failure may escape `handle()` and kill the stdio transport
 
 We exercised the original tools against a live `dsh` server. Verified behaviours worth knowing: the block and unblock loop works **unattended**, with no browser or UI client in the path. A title that you set explicitly **pins**, and it survives later turns. `dsh_cancel` tells a real abort from a lost race. We tested `dsh_digest`, `dsh_brief`, the usage record on tasks and the `compactionStalled` flag only against a fake server. Nobody has run them against a live `dsh` yet.
+
+## Tested against dsh
+
+The dsh API is not a documented, stable interface. This package uses it through three calls (`DshClient` in `transport.py`: `rpc`, `post`, `stream`). The package was tested against dsh package version `0.1.1-rc.2`, commit `b150a55`. `contracts/dsh-shapes.json` records the keys and types of real responses from that server. It holds no values.
+
+dsh reports a version in `host.describe`, but it is the constant `0.0.1`, so the tool cannot use it. The tool checks the shape of responses instead. `shape.REQUIRED` lists the fields that the code reads. The server and `dshctl` check the first responses of each method. If a field is missing or has another type, the call still returns. `dsh_brief` then adds a `dshShape` list with the problem, and a line in `needsAction` that tells the lead to report it. `dshctl` prints a warning on stderr.
+
+To record the shapes of another dsh, run `uv run python scripts/record-shapes.py` against it. The script makes read-only calls. A test checks that `shape.REQUIRED` fits the recording and fits the fake that the tests use. The recording does not cover `session.create`, `session.fork`, `session.rename` and `session.cancel`, because they change state. Those four are checked against the fake only. The frames of the pending-requests stream and the two POST endpoints (`respond`, `commands/execute`) have no shape check.
 
 ## Provenance
 

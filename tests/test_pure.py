@@ -15,7 +15,9 @@ import time
 
 import pytest
 
-from dsh_workers_mcp import dshctl
+from fakes import ScriptedClient
+
+from dsh_workers_mcp import dshctl, transport
 
 
 # --------------------------------------------------------- reasoning leakage
@@ -255,7 +257,7 @@ def _frame(payload: bytes, opcode: int = 0x1, fin: bool = True) -> bytes:
 
 
 def _read(raw: bytes) -> list[str]:
-    return list(dshctl._ws_frames(io.BytesIO(raw), time.time() + 5))
+    return list(transport._ws_frames(io.BytesIO(raw), time.time() + 5))
 
 
 def test_ws_reads_a_short_text_frame() -> None:
@@ -294,7 +296,7 @@ def test_ws_returns_cleanly_on_truncated_header() -> None:
 def test_ws_respects_the_deadline() -> None:
     """An already-expired deadline must not read even one frame."""
     reader = io.BytesIO(_frame(b"late"))
-    assert list(dshctl._ws_frames(reader, time.time() - 1)) == []
+    assert list(transport._ws_frames(reader, time.time() - 1)) == []
 
 
 def test_ws_decodes_utf8_payloads() -> None:
@@ -329,19 +331,18 @@ def test_pure_pushes_are_not_answerable(frame_type: str) -> None:
 
 def test_unreachable_server_raises_rather_than_reporting_empty() -> None:
     with pytest.raises(dshctl.RpcError, match="cannot reach"):
-        dshctl.read_stream("/api/events.mux", "http://127.0.0.1:9", settle=0.4,
-                           max_seconds=1.0)
+        transport.HttpClient("http://127.0.0.1:9").stream("/api/events.mux", settle=0.4, max_seconds=1.0)
 
 
 def test_pending_requests_propagates_unreachable() -> None:
     with pytest.raises(dshctl.RpcError, match="cannot reach"):
-        dshctl.pending_requests("http://127.0.0.1:9", settle=0.4, max_seconds=1.0)
+        dshctl.pending_requests(transport.HttpClient("http://127.0.0.1:9"), settle=0.4, max_seconds=1.0)
 
 
 def test_https_base_is_refused_explicitly() -> None:
     """Silently downgrading to plaintext would be worse than failing."""
     with pytest.raises(dshctl.RpcError, match="wss"):
-        dshctl._ws_connect("/api/events.mux", "https://127.0.0.1:3080", 1.0)
+        transport._ws_connect("/api/events.mux", "https://127.0.0.1:3080", 1.0)
 
 
 def test_pending_requests_keys_on_rpc_id(monkeypatch) -> None:
@@ -354,8 +355,8 @@ def test_pending_requests_keys_on_rpc_id(monkeypatch) -> None:
         "payload": {"type": "question/requested", "sessionId": "s1",
                     "questions": [{"id": "q1", "question": "which?"}]},
     }
-    monkeypatch.setattr(dshctl, "read_stream", lambda *a, **k: [frame, dict(frame)])
-    items = dshctl.pending_requests("http://x", 0.1, 0.1)
+    client = ScriptedClient(stream=lambda path: [frame, dict(frame)])
+    items = dshctl.pending_requests(client, 0.1, 0.1)
     assert len(items) == 1
     assert items[0]["rpcId"] == "abc"
     assert items[0]["questions"][0]["id"] == "q1"
@@ -363,23 +364,23 @@ def test_pending_requests_keys_on_rpc_id(monkeypatch) -> None:
 
 def test_pending_requests_keeps_approval_detail(monkeypatch) -> None:
     """An approval stalls a worker until a human acts; the tool name is the point."""
-    monkeypatch.setattr(dshctl, "read_stream", lambda *a, **k: [{
+    client = ScriptedClient(stream=lambda path: [{
         "type": "server-request", "rpcId": "xyz", "method": "approval/requested",
         "payload": {"type": "approval/requested", "sessionId": "s1",
                     "approvalId": "ap1", "toolName": "execute_bash",
                     "reason": "writes outside the workspace"},
     }])
-    item = dshctl.pending_requests("http://x", 0.1, 0.1)[0]
+    item = dshctl.pending_requests(client, 0.1, 0.1)[0]
     assert item["kind"] == "approval/requested"
     assert item["toolName"] == "execute_bash"
 
 
 def test_pending_requests_ignores_pure_pushes(monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "read_stream", lambda *a, **k: [{
+    client = ScriptedClient(stream=lambda path: [{
         "type": "server-request", "rpcId": "p1", "method": "session/projection",
         "payload": {"type": "session/projection", "key": "title", "value": "x"},
     }])
-    assert dshctl.pending_requests("http://x", 0.1, 0.1) == []
+    assert dshctl.pending_requests(client, 0.1, 0.1) == []
 
 
 # ------------------------------------------------------- answer validation
@@ -483,9 +484,9 @@ def test_cancel_on_an_idle_session_reports_that_nothing_was_stopped(monkeypatch,
     monkeypatch.setattr(dshctl, "last_turn_end",
                         lambda *a, **k: {"seq": 10, "kind": "completed"})
     called = []
-    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: called.append(a) or {})
+    client = ScriptedClient(rpc=lambda *a: called.append(a) or {})
 
-    dshctl.cmd_cancel(_Args(session="s1", base="http://x", timeout=1.0))
+    dshctl.cmd_cancel(_Args(session="s1", client=client, timeout=1.0))
     out = json.loads(capsys.readouterr().out)
     assert out["cancelled"] is False
     assert "already idle" in out["reason"]
@@ -496,12 +497,12 @@ def test_cancel_confirms_a_real_abort(monkeypatch, capsys) -> None:
     monkeypatch.setattr(dshctl, "find_session",
                         lambda *a, **k: {"sessionId": "s1", "running": True})
     monkeypatch.setattr(dshctl, "head_seq", lambda *a, **k: 100)
-    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: {"accepted": True})
+    client = ScriptedClient(rpc=lambda *a: {"accepted": True})
     monkeypatch.setattr(dshctl, "wait_for_turn_end", lambda *a, **k: (
         True, {"turnEnd": {"seq": 101, "kind": "aborted",
                            "reason": {"kind": "user"}}}))
 
-    dshctl.cmd_cancel(_Args(session="s1", base="http://x", timeout=1.0))
+    dshctl.cmd_cancel(_Args(session="s1", client=client, timeout=1.0))
     out = json.loads(capsys.readouterr().out)
     assert out["cancelled"] is True
     assert out["turnEnd"]["kind"] == "aborted"
@@ -512,11 +513,11 @@ def test_cancel_that_loses_the_race_is_not_reported_as_cancelled(monkeypatch, ca
     monkeypatch.setattr(dshctl, "find_session",
                         lambda *a, **k: {"sessionId": "s1", "running": True})
     monkeypatch.setattr(dshctl, "head_seq", lambda *a, **k: 100)
-    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: {"accepted": True})
+    client = ScriptedClient(rpc=lambda *a: {"accepted": True})
     monkeypatch.setattr(dshctl, "wait_for_turn_end", lambda *a, **k: (
         True, {"turnEnd": {"seq": 101, "kind": "completed"}}))
 
-    dshctl.cmd_cancel(_Args(session="s1", base="http://x", timeout=1.0))
+    dshctl.cmd_cancel(_Args(session="s1", client=client, timeout=1.0))
     out = json.loads(capsys.readouterr().out)
     assert out["cancelled"] is False
     assert "finished before" in out["note"]
@@ -528,9 +529,8 @@ def test_cancel_that_loses_the_race_is_not_reported_as_cancelled(monkeypatch, ca
 def test_name_surfaces_normalisation(monkeypatch, capsys) -> None:
     """A silently truncated or stripped title would misidentify a worker."""
     monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s1"})
-    monkeypatch.setattr(dshctl, "rpc",
-                        lambda *a, **k: {"title": "implementer", "seq": 7})
-    dshctl.cmd_name(_Args(session="s1", base="http://x",
+    client = ScriptedClient(rpc=lambda *a: {"title": "implementer", "seq": 7})
+    dshctl.cmd_name(_Args(session="s1", client=client,
                           title="implementer\n\nand more text"))
     out = json.loads(capsys.readouterr().out)
     assert out["title"] == "implementer"
@@ -539,9 +539,8 @@ def test_name_surfaces_normalisation(monkeypatch, capsys) -> None:
 
 def test_name_is_quiet_when_accepted_verbatim(monkeypatch, capsys) -> None:
     monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s1"})
-    monkeypatch.setattr(dshctl, "rpc",
-                        lambda *a, **k: {"title": "implementer", "seq": 7})
-    dshctl.cmd_name(_Args(session="s1", base="http://x", title="implementer"))
+    client = ScriptedClient(rpc=lambda *a: {"title": "implementer", "seq": 7})
+    dshctl.cmd_name(_Args(session="s1", client=client, title="implementer"))
     out = json.loads(capsys.readouterr().out)
     assert "note" not in out
     assert out["seq"] == 7
@@ -585,20 +584,20 @@ def test_approve_refuses_a_question(monkeypatch) -> None:
     monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [
         {"rpcId": "r1", "kind": "question/requested", "sessionId": "s1"}])
     with pytest.raises(dshctl.RpcError, match="answer questions"):
-        dshctl.cmd_approve(_Args(session="s1", rpc_id="r1", outcome="rejected", base="b"))
+        dshctl.cmd_approve(_Args(session="s1", rpc_id="r1", outcome="rejected", client=None))
 
 
 def test_approve_refuses_another_sessions_request(monkeypatch) -> None:
     monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [_approval("x")])
     monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s2"})
     with pytest.raises(dshctl.RpcError, match="belongs to"):
-        dshctl.cmd_approve(_Args(session="s2", rpc_id="r1", outcome="allowed-once", base="b"))
+        dshctl.cmd_approve(_Args(session="s2", rpc_id="r1", outcome="allowed-once", client=None))
 
 
 def test_approve_refuses_a_settled_request(monkeypatch) -> None:
     monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [])
     with pytest.raises(dshctl.RpcError, match="not pending"):
-        dshctl.cmd_approve(_Args(session="s1", rpc_id="gone", outcome="rejected", base="b"))
+        dshctl.cmd_approve(_Args(session="s1", rpc_id="gone", outcome="rejected", client=None))
 
 
 def test_permission_text_is_parsed() -> None:
@@ -702,6 +701,6 @@ def test_wait_any_times_out_naming_who_is_still_running(monkeypatch) -> None:
 
 def test_cmd_wait_with_one_session_keeps_the_single_path(monkeypatch, capsys) -> None:
     _fake_workers(monkeypatch, {"s1": False}, {})
-    dshctl.cmd_wait(_Args(session=["s1"], after=None, timeout=1.0, poll=0, base="b"))
+    dshctl.cmd_wait(_Args(session=["s1"], after=None, timeout=1.0, poll=0, client=None))
     out = json.loads(capsys.readouterr().out)
     assert out["alreadyIdle"] is True and "sessionId" not in out

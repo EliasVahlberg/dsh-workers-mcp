@@ -20,22 +20,18 @@ never hand raw history to a model's context.
 from __future__ import annotations
 
 import argparse
-import base64
-import hashlib
 import contextlib
 import json
 import os
 import re
-import socket
 import sys
 import time
 from pathlib import Path
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
 
-DEFAULT_BASE = "http://127.0.0.1:3080"
+from dsh_workers_mcp.shape import CheckedClient
+from dsh_workers_mcp.transport import DEFAULT_BASE, DshClient, HttpClient, RpcError
+
 HISTORY_PAGE = 200
 
 # Streaming deltas: redundant with the committed assistant/message that follows.
@@ -47,41 +43,12 @@ NOISE_TYPES = {"assistant/chunk", "reasoning/chunk"}
 REASONING_BLOCKS = {"reasoning", "thinking"}
 
 
-class RpcError(RuntimeError):
-    pass
-
-
-def rpc(method: str, payload: dict | None = None, base: str = DEFAULT_BASE,
-        timeout: float = 120.0) -> dict:
-    """One RPC round trip. Raises RpcError on transport or ok:false failure."""
-    body = json.dumps({
-        "type": "client-request",
-        "rpcId": f"dshctl-{int(time.time() * 1000)}",
-        "method": method,
-        "payload": payload or {},
-    }).encode()
-    req = urllib.request.Request(
-        f"{base}/api/{method}", data=body,
-        headers={"content-type": "application/json"}, method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            parsed = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        raise RpcError(f"{method}: HTTP {exc.code}: {exc.read()[:400].decode(errors='replace')}") from exc
-    except urllib.error.URLError as exc:
-        raise RpcError(f"{method}: cannot reach {base} ({exc.reason}) — is `dsh web` running?") from exc
-    result = parsed.get("result") or {}
-    if not result.get("ok"):
-        raise RpcError(f"{method}: {json.dumps(result.get('error'), indent=2)}")
-    return result.get("value") or {}
-
 
 # ---------------------------------------------------------------- session view
 
-def find_session(session_ref: str, base: str) -> dict:
+def find_session(session_ref: str, client: DshClient) -> dict:
     """Resolve a full or partial session id to its session.list summary."""
-    items = rpc("session.list", base=base).get("items", [])
+    items = client.rpc("session.list").get("items", [])
     exact = [s for s in items if s["sessionId"] == session_ref]
     if exact:
         return exact[0]
@@ -144,18 +111,18 @@ def reasoning_of(event: dict) -> str:
     )
 
 
-def fetch_events(session_id: str, base: str, max_messages: int = 40,
+def fetch_events(session_id: str, client: DshClient, max_messages: int = 40,
                  keep_noise: bool = False) -> list[dict]:
     """One page of history, newest-anchored, with streaming chunks dropped."""
-    value = rpc("session.history",
-                {"sessionId": session_id, "maxMessages": max_messages}, base=base)
+    value = client.rpc("session.history",
+                {"sessionId": session_id, "maxMessages": max_messages})
     events = [e.get("event", e) for e in value.get("events", [])]
     if keep_noise:
         return events
     return [e for e in events if e.get("type") not in NOISE_TYPES]
 
 
-def walk_events(session_id: str, base: str, max_messages: int,
+def walk_events(session_id: str, client: DshClient, max_messages: int,
                 pages: int) -> tuple[list[dict], bool]:
     """
     Page backwards through history, newest first, dropping streaming chunks.
@@ -171,7 +138,7 @@ def walk_events(session_id: str, base: str, max_messages: int,
         payload: dict = {"sessionId": session_id, "maxMessages": max_messages}
         if before is not None:
             payload["beforeSeq"] = before
-        value = rpc("session.history", payload, base=base)
+        value = client.rpc("session.history", payload)
         raw = [e.get("event", e) for e in value.get("events", [])]
         if not raw:
             exhausted = True
@@ -187,16 +154,16 @@ def walk_events(session_id: str, base: str, max_messages: int,
     return collected, exhausted
 
 
-def latest_reply(session_id: str, base: str, after_seq: int = -1,
+def latest_reply(session_id: str, client: DshClient, after_seq: int = -1,
                  max_messages: int = 8) -> tuple[int, str, str]:
     """(seq, answer_text, reasoning_text) of the newest assistant message."""
-    for event in reversed(fetch_events(session_id, base, max_messages)):
+    for event in reversed(fetch_events(session_id, client, max_messages)):
         if event.get("type") == "assistant/message" and event.get("seq", -1) > after_seq:
             return event.get("seq", -1), text_of(event), reasoning_of(event)
     return -1, "", ""
 
 
-def last_turn_end(session_id: str, base: str, max_messages: int = 8) -> dict | None:
+def last_turn_end(session_id: str, client: DshClient, max_messages: int = 8) -> dict | None:
     """
     Newest turn/end reason, or None when none is in the recent window.
 
@@ -208,7 +175,7 @@ def last_turn_end(session_id: str, base: str, max_messages: int = 8) -> dict | N
     error | max-tokens | interrupted; `aborted` carries a cause and `error`
     carries a structured LlmFailure, both preserved here.
     """
-    for event in reversed(fetch_events(session_id, base, max_messages)):
+    for event in reversed(fetch_events(session_id, client, max_messages)):
         if event.get("type") == "turn/end":
             reason = (event.get("data") or {}).get("reason") or {}
             extra = {k: v for k, v in reason.items() if k != "kind"}
@@ -219,7 +186,7 @@ def last_turn_end(session_id: str, base: str, max_messages: int = 8) -> dict | N
 # ------------------------------------------------------------------- commands
 
 def cmd_list(args) -> int:
-    items = rpc("session.list", base=args.base).get("items", [])
+    items = args.client.rpc("session.list").get("items", [])
     items.sort(key=lambda s: s.get("updatedAt") or 0, reverse=True)
     rows = []
     for summary in items:
@@ -242,7 +209,7 @@ def cmd_list(args) -> int:
 
 
 def cmd_status(args) -> int:
-    summary = find_session(args.session, args.base)
+    summary = find_session(args.session, args.client)
     values = projections(summary)
     stats = values.get("sessionStats") or {}
     usage = values.get("tokenUsage") or {}
@@ -251,7 +218,7 @@ def cmd_status(args) -> int:
     used = pressure.get("pressureTokens") or 0
     cache_read = usage.get("cacheReadTokens") or 0
     uncached = usage.get("uncachedInputTokens") or 0
-    seq, reply, reasoning = latest_reply(summary["sessionId"], args.base)
+    seq, reply, reasoning = latest_reply(summary["sessionId"], args.client)
 
     out = {
         "sessionId": summary["sessionId"],
@@ -283,16 +250,16 @@ def cmd_status(args) -> int:
                         "reasoningChars": len(reasoning),
                         **({"reasoning": reasoning[: args.chars]}
                            if getattr(args, "reasoning", False) else {})},
-        "lastTurnEnd": last_turn_end(summary["sessionId"], args.base),
+        "lastTurnEnd": last_turn_end(summary["sessionId"], args.client),
     }
     print(json.dumps(out, indent=2))
     return 0
 
 
 def cmd_grep(args) -> int:
-    summary = find_session(args.session, args.base)
+    summary = find_session(args.session, args.client)
     pattern = re.compile(args.pattern, 0 if args.case_sensitive else re.IGNORECASE)
-    events, exhausted = walk_events(summary["sessionId"], args.base,
+    events, exhausted = walk_events(summary["sessionId"], args.client,
                                     args.max_messages, args.pages)
     hits = []
     for event in events:
@@ -321,7 +288,7 @@ def cmd_grep(args) -> int:
 
 def cmd_search(args) -> int:
     """Server-side cross-session search (title/content snippets, capped)."""
-    value = rpc("session.search", {"query": args.query}, base=args.base)
+    value = args.client.rpc("session.search", {"query": args.query})
     print(json.dumps(value, indent=2)[: args.chars])
     return 0
 
@@ -354,106 +321,10 @@ def cmd_search(args) -> int:
 
 ANSWERABLE = {"question/requested", "approval/requested"}
 
-_WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-
-
-def _ws_connect(path: str, base: str, timeout: float):
-    """Handshake a WebSocket and return (socket, buffered_reader)."""
-    parsed = urllib.parse.urlsplit(base)
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    if parsed.scheme == "https":
-        raise RpcError("wss:// is not supported; dsh web serves plain loopback")
-    key = base64.b64encode(os.urandom(16)).decode()
-    request = (
-        f"GET {path} HTTP/1.1\r\n"
-        f"Host: {host}:{port}\r\n"
-        "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n"
-        f"Sec-WebSocket-Key: {key}\r\n"
-        "Sec-WebSocket-Version: 13\r\n"
-        "\r\n"
-    )
-    try:
-        sock = socket.create_connection((host, port), timeout=timeout)
-    except OSError as exc:
-        raise RpcError(
-            f"{path}: cannot reach {base} ({exc}) — is `dsh web` running?") from exc
-    sock.settimeout(timeout)
-    sock.sendall(request.encode())
-    reader = sock.makefile("rb")
-    status = reader.readline().decode("latin-1").strip()
-    if "101" not in status:
-        sock.close()
-        raise RpcError(f"{path}: WebSocket upgrade refused ({status!r})")
-    while True:  # drain the response headers
-        line = reader.readline()
-        if line in (b"\r\n", b"\n", b""):
-            break
-    expected = base64.b64encode(
-        hashlib.sha1((key + _WS_GUID).encode()).digest()).decode()
-    return sock, reader, expected
-
-
-def _ws_frames(reader, deadline: float):
-    """Yield text payloads off an unmasked server-to-client WebSocket stream."""
-    pending = ""
-    while time.time() < deadline:
-        header = reader.read(2)
-        if not header or len(header) < 2:
-            return
-        fin = bool(header[0] & 0x80)
-        opcode = header[0] & 0x0F
-        length = header[1] & 0x7F
-        if length == 126:
-            length = int.from_bytes(reader.read(2), "big")
-        elif length == 127:
-            length = int.from_bytes(reader.read(8), "big")
-        payload = reader.read(length) if length else b""
-        if opcode == 0x8:  # close
-            return
-        if opcode in (0x9, 0xA):  # ping/pong: nothing to do on a short read
-            continue
-        if opcode in (0x0, 0x1):  # continuation or text
-            pending += payload.decode("utf-8", "replace")
-            if fin:
-                yield pending
-                pending = ""
-
-
-def read_stream(path: str, base: str, settle: float = 1.5,
-                max_seconds: float = 8.0) -> list[dict]:
-    """
-    Open a downlink, collect frames until it goes quiet, then close.
-
-    Connecting and reading fail differently on purpose. A refused connection or
-    a rejected upgrade raises, because "no frames" and "no server" must not look
-    alike -- an empty result would otherwise read as "nothing is pending" when
-    the truth is that nothing was asked. Once the stream is open, a read that
-    goes quiet is the normal stop condition: the replayed baseline has been
-    delivered in full, so whatever was collected is returned.
-    """
-    frames: list[dict] = []
-    deadline = time.time() + max_seconds
-    sock, reader, _ = _ws_connect(path, base, settle)  # raises on failure
-    try:
-        for text in _ws_frames(reader, deadline):
-            try:
-                frames.append(json.loads(text))
-            except json.JSONDecodeError:
-                continue  # one corrupt frame must not kill the read
-    except (TimeoutError, OSError):
-        pass  # stream went quiet: the baseline is in
-    finally:
-        reader.close()
-        sock.close()
-    return frames
-
-
-def pending_requests(base: str, settle: float, max_seconds: float) -> list[dict]:
+def pending_requests(client: DshClient, settle: float, max_seconds: float) -> list[dict]:
     """Every outstanding question and approval, keyed by the rpcId to echo."""
     out: dict[str, dict] = {}
-    for frame in read_stream("/api/events.mux", base, settle, max_seconds):
+    for frame in client.stream("/api/events.mux", settle, max_seconds):
         payload = frame.get("payload") or {}
         kind = payload.get("type")
         if kind not in ANSWERABLE:
@@ -476,7 +347,7 @@ def pending_requests(base: str, settle: float, max_seconds: float) -> list[dict]
 TOOL_POLICY_MARK = "[tool-policy:"
 
 
-def tool_call_arguments(session_id: str, call_id: str, base: str) -> object:
+def tool_call_arguments(session_id: str, call_id: str, client: DshClient) -> object:
     """
     The arguments of one tool call, found by callId in the session log.
 
@@ -485,7 +356,7 @@ def tool_call_arguments(session_id: str, call_id: str, base: str) -> object:
     an approver sees only a tool name and a reason -- and the reason is usually
     model-written. The arguments are what is actually about to run.
     """
-    for event in reversed(fetch_events(session_id, base, 12)):
+    for event in reversed(fetch_events(session_id, client, 12)):
         data = event.get("data") or {}
         if event.get("type") == "tool/call" and data.get("callId") == call_id:
             raw = data.get("arguments")
@@ -496,12 +367,12 @@ def tool_call_arguments(session_id: str, call_id: str, base: str) -> object:
     return None
 
 
-def describe_approval(item: dict, base: str) -> dict:
+def describe_approval(item: dict, client: DshClient) -> dict:
     """Add the tool arguments and say who wrote the reason."""
     reason = item.get("reason") or ""
     out = dict(item)
     if item.get("callId"):
-        out["arguments"] = tool_call_arguments(item["sessionId"], item["callId"], base)
+        out["arguments"] = tool_call_arguments(item["sessionId"], item["callId"], client)
     # tool-policy reasons come from our own config; everything else here --
     # notably a sandbox escalation's justification -- is text the worker's model
     # wrote, and a hijacked worker controls it.
@@ -512,11 +383,11 @@ def describe_approval(item: dict, base: str) -> dict:
 
 
 def cmd_pending(args) -> int:
-    items = pending_requests(args.base, args.settle, args.timeout)
+    items = pending_requests(args.client, args.settle, args.timeout)
     if args.session:
-        wanted = find_session(args.session, args.base)["sessionId"]
+        wanted = find_session(args.session, args.client)["sessionId"]
         items = [i for i in items if i.get("sessionId") == wanted]
-    items = [describe_approval(i, args.base) if i["kind"] == "approval/requested" else i
+    items = [describe_approval(i, args.client) if i["kind"] == "approval/requested" else i
              for i in items]
     print(json.dumps(items, indent=2))
     return 0
@@ -530,7 +401,7 @@ def cmd_approve(args) -> int:
     `rejected` makes the tool return an error the model sees as a refusal.
     Those are the only two outcomes the wire accepts.
     """
-    pending = [i for i in pending_requests(args.base, 1.5, 8.0) if i["rpcId"] == args.rpc_id]
+    pending = [i for i in pending_requests(args.client, 1.5, 8.0) if i["rpcId"] == args.rpc_id]
     if not pending:
         raise RpcError(f"rpcId {args.rpc_id!r} is not pending — already settled, "
                        f"or the turn was interrupted. Re-read `pending`.")
@@ -538,11 +409,11 @@ def cmd_approve(args) -> int:
     if item["kind"] != "approval/requested":
         raise RpcError(f"rpcId {args.rpc_id!r} is a {item['kind']}; answer questions "
                        f"with `answer`, not `approve`.")
-    wanted = find_session(args.session, args.base)["sessionId"]
+    wanted = find_session(args.session, args.client)["sessionId"]
     if item["sessionId"] != wanted:
         raise RpcError(f"rpcId {args.rpc_id!r} belongs to {item['sessionId']}, not {wanted}")
 
-    body = json.dumps({
+    body = {
         "type": "client-response",
         "rpcId": args.rpc_id,
         "result": {"ok": True, "value": {
@@ -550,23 +421,16 @@ def cmd_approve(args) -> int:
             "approvalId": item["approvalId"],
             "outcome": args.outcome,
         }},
-    }).encode()
-    req = urllib.request.Request(f"{args.base}/api/respond", data=body,
-                                 headers={"content-type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            receipt = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        raise RpcError(f"respond: HTTP {exc.code}: "
-                       f"{exc.read()[:400].decode(errors='replace')}") from exc
+    }
+    receipt = args.client.post("/api/respond", body, "respond")
     print(json.dumps({"receipt": receipt, "outcome": args.outcome,
                       "toolName": item.get("toolName"),
-                      "arguments": describe_approval(item, args.base).get("arguments")},
+                      "arguments": describe_approval(item, args.client).get("arguments")},
                      indent=2))
     return 0 if receipt.get("accepted") else 2
 
 
-def execute_command(session_id: str, line: str, base: str) -> dict:
+def execute_command(session_id: str, line: str, client: DshClient) -> dict:
     """
     Run a host slash command against one session, without sending it to the model.
 
@@ -575,18 +439,10 @@ def execute_command(session_id: str, line: str, base: str) -> dict:
     through `session.prompt` does NOT route it as a command -- the model receives
     it as ordinary text and starts a turn. Verified the hard way.
     """
-    body = json.dumps({"type": "client-request", "rpcId": f"cmd-{uuid.uuid4()}",
-                       "method": "commands/execute",
-                       "payload": {"args": {"agentId": session_id, "line": line,
-                                            "images": []}}}).encode()
-    req = urllib.request.Request(f"{base}/api/commands/execute", data=body,
-                                 headers={"content-type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            envelope = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        raise RpcError(f"commands/execute: HTTP {exc.code}: "
-                       f"{exc.read()[:400].decode(errors='replace')}") from exc
+    body = {"type": "client-request", "rpcId": f"cmd-{uuid.uuid4()}",
+            "method": "commands/execute",
+            "payload": {"args": {"agentId": session_id, "line": line, "images": []}}}
+    envelope = client.post("/api/commands/execute", body, "commands/execute")
     result = envelope.get("result") or {}
     if not result.get("ok"):
         raise RpcError(f"commands/execute: {json.dumps(result.get('error'))}")
@@ -599,8 +455,8 @@ def execute_command(session_id: str, line: str, base: str) -> dict:
 _PRESET_LINE = re.compile(r"current preset (\S+) \(available: ([^)]*)\)")
 
 
-def get_permission(session_id: str, base: str) -> dict:
-    text = execute_command(session_id, "/permission", base).get("text", "")
+def get_permission(session_id: str, client: DshClient) -> dict:
+    text = execute_command(session_id, "/permission", client).get("text", "")
     match = _PRESET_LINE.search(text)
     if not match:
         raise RpcError(f"unexpected /permission reply: {text!r}")
@@ -608,14 +464,14 @@ def get_permission(session_id: str, base: str) -> dict:
             "available": [n.strip() for n in match.group(2).split(",") if n.strip()]}
 
 
-def set_permission(session_id: str, preset: str, base: str) -> dict:
-    before = get_permission(session_id, base)
+def set_permission(session_id: str, preset: str, client: DshClient) -> dict:
+    before = get_permission(session_id, client)
     if preset not in before["available"]:
         raise RpcError(f"unknown preset {preset!r}; available: {before['available']}")
-    result = execute_command(session_id, f"/permission {preset}", base)
+    result = execute_command(session_id, f"/permission {preset}", client)
     if result.get("kind") == "error":
         raise RpcError(f"/permission {preset}: {result.get('text')}")
-    after = get_permission(session_id, base)
+    after = get_permission(session_id, client)
     # Read back rather than trusting the command's success text: the preset a
     # session *reports* is derived from its knobs, so a mismatch here would mean
     # the switch did not take.
@@ -659,20 +515,20 @@ def cmd_policy_patch(args) -> int:
 
 
 def cmd_permission(args) -> int:
-    session_id = find_session(args.session, args.base)["sessionId"]
+    session_id = find_session(args.session, args.client)["sessionId"]
     if args.preset:
-        if running_now(session_id, args.base) and not args.force:
+        if running_now(session_id, args.client) and not args.force:
             raise RpcError("worker is mid-turn; the new preset would apply from its "
                            "next tool call. Pass --force to switch anyway.")
-        out = set_permission(session_id, args.preset, args.base)
+        out = set_permission(session_id, args.preset, args.client)
     else:
-        out = get_permission(session_id, args.base)
+        out = get_permission(session_id, args.client)
     print(json.dumps({"sessionId": session_id, **out}, indent=2))
     return 0
 
 
-def running_now(session_id: str, base: str) -> bool:
-    return bool(find_session(session_id, base).get("running"))
+def running_now(session_id: str, client: DshClient) -> bool:
+    return bool(find_session(session_id, client).get("running"))
 
 
 def build_answers(args) -> list[dict]:
@@ -752,13 +608,13 @@ def validate_answers(answers: list[dict], questions: list[dict]) -> None:
 
 def cmd_answer(args) -> int:
     """Settle a pending question by echoing its rpcId back to /api/respond."""
-    session_id = find_session(args.session, args.base)["sessionId"]
+    session_id = find_session(args.session, args.client)["sessionId"]
     answers = build_answers(args)
 
     # Validate against the live request rather than trusting the caller: the
     # rules depend on the question (multiSelect, the exact option labels), so
     # they cannot be checked from the answer alone.
-    pending = [item for item in pending_requests(args.base, 1.5, 8.0)
+    pending = [item for item in pending_requests(args.client, 1.5, 8.0)
                if item["rpcId"] == args.rpc_id]
     if not pending:
         raise RpcError(
@@ -770,24 +626,15 @@ def cmd_answer(args) -> int:
             f"This tool cannot grant tool approvals.")
     validate_answers(answers, pending[0].get("questions") or [])
 
-    body = json.dumps({
+    body = {
         "type": "client-response",
         "rpcId": args.rpc_id,
         "result": {"ok": True, "value": {
             "sessionId": session_id,
             "answer": {"answers": answers},
         }},
-    }).encode()
-    req = urllib.request.Request(
-        f"{args.base}/api/respond", data=body,
-        headers={"content-type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            receipt = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        raise RpcError(f"respond: HTTP {exc.code}: "
-                       f"{exc.read()[:400].decode(errors='replace')}") from exc
-    print(json.dumps(receipt, indent=2))
+    }
+    receipt = args.client.post("/api/respond", body, "respond")
     # A late or duplicate answer comes back accepted:false reason:'not-pending'.
     return 0 if receipt.get("accepted") else 2
 
@@ -802,18 +649,18 @@ def cmd_answer(args) -> int:
 # {id, revision} ref, so a stale revision is rejected rather than silently
 # clobbering a concurrent edit.
 
-def current_goal(session_ref: str, base: str) -> dict:
-    goal = (projections(find_session(session_ref, base)).get("goal") or {}).get("goal") or {}
+def current_goal(session_ref: str, client: DshClient) -> dict:
+    goal = (projections(find_session(session_ref, client)).get("goal") or {}).get("goal") or {}
     if not goal.get("id"):
         raise RpcError("session has no goal — create one with `goal set`")
     return goal
 
 
 def cmd_goal(args) -> int:
-    session_id = find_session(args.session, args.base)["sessionId"]
+    session_id = find_session(args.session, args.client)["sessionId"]
 
     if args.action == "show":
-        print(json.dumps(projections(find_session(session_id, args.base)).get("goal"),
+        print(json.dumps(projections(find_session(session_id, args.client)).get("goal"),
                          indent=2))
         return 0
 
@@ -830,11 +677,11 @@ def cmd_goal(args) -> int:
         payload: dict = {"sessionId": session_id, "objective": args.objective}
         if args.max_rounds is not None:
             payload["maxGoalRounds"] = args.max_rounds
-        print(json.dumps(rpc("goal.create", payload, base=args.base), indent=2))
+        print(json.dumps(args.client.rpc("goal.create", payload), indent=2))
         return 0
 
     payload = {"sessionId": session_id,
-               "ref": {k: current_goal(session_id, args.base)[k]
+               "ref": {k: current_goal(session_id, args.client)[k]
                        for k in ("id", "revision")}}
     if args.action == "edit":
         if args.objective is None and args.max_rounds is None:
@@ -843,24 +690,24 @@ def cmd_goal(args) -> int:
             payload["objective"] = args.objective
         if args.max_rounds is not None:
             payload["maxGoalRounds"] = args.max_rounds
-    print(json.dumps(rpc(f"goal.{args.action}", payload, base=args.base), indent=2))
+    print(json.dumps(args.client.rpc(f"goal.{args.action}", payload), indent=2))
     return 0
 
 
-def send_prompt(session_id: str, text: str, base: str, mode: str) -> None:
-    rpc("session.prompt", {
+def send_prompt(session_id: str, text: str, client: DshClient, mode: str) -> None:
+    client.rpc("session.prompt", {
         "sessionId": session_id,
         "mode": mode,
         "content": [{"type": "text", "text": text}],
-    }, base=base)
+    })
 
 
-def head_seq(session_id: str, base: str) -> int:
-    value = rpc("session.history", {"sessionId": session_id, "maxMessages": 1}, base=base)
+def head_seq(session_id: str, client: DshClient) -> int:
+    value = client.rpc("session.history", {"sessionId": session_id, "maxMessages": 1})
     return (value.get("projections") or {}).get("asOfSeq", -1)
 
 
-def wait_for_turn_end(session_id: str, base: str, after_seq: int,
+def wait_for_turn_end(session_id: str, client: DshClient, after_seq: int,
                       timeout: float, poll: float,
                       watch_pending: bool = False) -> tuple[bool, dict]:
     """
@@ -878,17 +725,17 @@ def wait_for_turn_end(session_id: str, base: str, after_seq: int,
     while time.time() < deadline:
         time.sleep(poll)
         try:
-            summary = find_session(session_id, base)
+            summary = find_session(session_id, client)
         except RpcError:
             continue
         running = bool(summary.get("running"))
         saw_running = saw_running or running
-        for event in reversed(fetch_events(session_id, base, 4)):
+        for event in reversed(fetch_events(session_id, client, 4)):
             if event.get("type") == "turn/end" and event.get("seq", -1) > after_seq:
                 return True, {"reason": (event.get("data") or {}).get("reason"),
                               "seq": event.get("seq")}
         if watch_pending and running:
-            blocked = [item for item in pending_requests(base, 0.8, 4.0)
+            blocked = [item for item in pending_requests(client, 0.8, 4.0)
                        if item.get("sessionId") == session_id]
             if blocked:
                 return False, {"blocked": True, "pending": blocked,
@@ -902,9 +749,9 @@ def wait_for_turn_end(session_id: str, base: str, after_seq: int,
 
 def cmd_task(args) -> int:
     """Fire-and-forget: queue a long task, return immediately."""
-    summary = find_session(args.session, args.base)
-    before = head_seq(summary["sessionId"], args.base)
-    send_prompt(summary["sessionId"], args.prompt, args.base, args.mode)
+    summary = find_session(args.session, args.client)
+    before = head_seq(summary["sessionId"], args.client)
+    send_prompt(summary["sessionId"], args.prompt, args.client, args.mode)
     print(json.dumps({
         "dispatched": True,
         "sessionId": summary["sessionId"],
@@ -917,13 +764,13 @@ def cmd_task(args) -> int:
 
 def cmd_ask(args) -> int:
     """Short-form Q&A: prompt, block until the turn ends, print the reply."""
-    summary = find_session(args.session, args.base)
+    summary = find_session(args.session, args.client)
     session_id = summary["sessionId"]
-    before = head_seq(session_id, args.base)
+    before = head_seq(session_id, args.client)
     started = time.time()
-    send_prompt(session_id, args.prompt, args.base, args.mode)
+    send_prompt(session_id, args.prompt, args.client, args.mode)
     completed, info = wait_for_turn_end(
-        session_id, args.base, before, args.timeout, args.poll, watch_pending=True)
+        session_id, args.client, before, args.timeout, args.poll, watch_pending=True)
     if info.get("blocked"):
         # The worker asked something mid-reply. Returning now, rather than
         # sitting out the timeout, is what lets the caller answer it.
@@ -931,7 +778,7 @@ def cmd_ask(args) -> int:
                           "waitedSeconds": round(time.time() - started, 1),
                           **info}, indent=2))
         return 3
-    seq, reply, reasoning = latest_reply(session_id, args.base, after_seq=before)
+    seq, reply, reasoning = latest_reply(session_id, args.client, after_seq=before)
     print(json.dumps({
         "sessionId": session_id,
         "completed": completed,
@@ -961,25 +808,25 @@ def cmd_wait(args) -> int:
     if len(refs) > 1:
         if args.after is not None:
             raise RpcError("--after applies to one session, not several")
-        out = wait_for_any(refs, args.base, args.timeout, args.poll)
+        out = wait_for_any(refs, args.client, args.timeout, args.poll)
         print(json.dumps(out, indent=2))
         return 0 if out.get("completed") else (3 if out.get("blocked") else 2)
 
-    summary = find_session(refs[0], args.base)
+    summary = find_session(refs[0], args.client)
     session_id = summary["sessionId"]
 
     if args.after is not None:
         after = args.after
     elif summary.get("running"):
-        after = head_seq(session_id, args.base)
+        after = head_seq(session_id, args.client)
     else:
-        last = last_turn_end(session_id, args.base)
+        last = last_turn_end(session_id, args.client)
         print(json.dumps({"completed": last is not None, "alreadyIdle": True,
                           **(last or {})}, indent=2))
         return 0 if last else 2
 
     completed, info = wait_for_turn_end(
-        session_id, args.base, after, args.timeout, args.poll, watch_pending=True)
+        session_id, args.client, after, args.timeout, args.poll, watch_pending=True)
     if info.get("blocked"):
         print(json.dumps({"completed": False, "waitedFromSeq": after, **info}, indent=2))
         return 3
@@ -989,7 +836,7 @@ def cmd_wait(args) -> int:
     return 0 if completed else 2
 
 
-def wait_for_any(refs: list[str], base: str, timeout: float, poll: float) -> dict:
+def wait_for_any(refs: list[str], client: DshClient, timeout: float, poll: float) -> dict:
     """
     Block until the FIRST of several workers ends a turn or blocks on you.
 
@@ -1001,27 +848,27 @@ def wait_for_any(refs: list[str], base: str, timeout: float, poll: float) -> dic
     """
     afters: dict[str, int] = {}
     for ref in refs:
-        summary = find_session(ref, base)
+        summary = find_session(ref, client)
         session_id = summary["sessionId"]
         if not summary.get("running"):
-            last = last_turn_end(session_id, base)
+            last = last_turn_end(session_id, client)
             return {"sessionId": session_id, "completed": last is not None,
                     "alreadyIdle": True, **(last or {})}
-        afters[session_id] = head_seq(session_id, base)
+        afters[session_id] = head_seq(session_id, client)
 
     deadline = time.time() + timeout
     while time.time() < deadline:
         time.sleep(poll)
         for session_id, after in afters.items():
             with contextlib.suppress(RpcError):
-                for event in reversed(fetch_events(session_id, base, 4)):
+                for event in reversed(fetch_events(session_id, client, 4)):
                     if event.get("type") == "turn/end" and event.get("seq", -1) > after:
                         reason = (event.get("data") or {}).get("reason") or {}
                         return {"sessionId": session_id, "completed": True,
                                 "kind": reason.get("kind"), "reason": reason,
                                 "seq": event.get("seq"),
                                 "stillRunning": [s for s in afters if s != session_id]}
-        blocked = [item for item in pending_requests(base, 0.8, 4.0)
+        blocked = [item for item in pending_requests(client, 0.8, 4.0)
                    if item.get("sessionId") in afters]
         if blocked:
             return {"sessionId": blocked[0]["sessionId"], "completed": False,
@@ -1108,7 +955,7 @@ def restore_default_model(before: str) -> str | None:
     return describe_default(new)
 
 
-def select_model(session_id: str, base: str, provider: str | None = None,
+def select_model(session_id: str, client: DshClient, provider: str | None = None,
                  model: str | None = None, effort: str | None = None) -> dict:
     """
     Pin a session's model and/or reasoning effort, then undo dsh's side effect.
@@ -1118,7 +965,7 @@ def select_model(session_id: str, base: str, provider: str | None = None,
     global default (see restore_default_model); this puts the default back.
     """
     if not (provider and model):
-        current = rpc("session.models", {"sessionId": session_id}, base=base).get("current") or {}
+        current = client.rpc("session.models", {"sessionId": session_id}).get("current") or {}
         provider, model = provider or current.get("provider"), model or current.get("model")
         if not (provider and model):
             raise RpcError("cannot tell this session's current model; pass provider and model")
@@ -1129,8 +976,8 @@ def select_model(session_id: str, base: str, provider: str | None = None,
         before = settings_path().read_text()
     except OSError:
         before = None
-    rpc("session.selectModel", payload, base=base)
-    selected = rpc("session.models", {"sessionId": session_id}, base=base).get("current") or {}
+    client.rpc("session.selectModel", payload)
+    selected = client.rpc("session.models", {"sessionId": session_id}).get("current") or {}
     out = {"selectedModel": f"{selected.get('provider')}/{selected.get('model')}",
            "reasoningEffort": selected.get("reasoningEffort")}
     if effort and selected.get("reasoningEffort") != effort:
@@ -1157,24 +1004,24 @@ def cmd_create(args) -> int:
         raise RpcError("refusing to create a session with no cwd/preset "
                        "(every field is optional server-side, so an empty "
                        "payload silently creates a blank session)")
-    value = rpc("session.create", payload, base=args.base)
+    value = args.client.rpc("session.create", payload)
     effort = getattr(args, "reasoning_effort", None)
     if (args.provider and args.model) or effort:
-        value.update(select_model(value["sessionId"], args.base, args.provider,
+        value.update(select_model(value["sessionId"], args.client, args.provider,
                                   args.model, effort))
     if args.permission:
         # Applied before the first prompt, so no call ever runs under the default.
-        value["permission"] = set_permission(value["sessionId"], args.permission, args.base)
+        value["permission"] = set_permission(value["sessionId"], args.permission, args.client)
     print(json.dumps(value, indent=2))
     return 0
 
 
-def turn_end_seq(session_id: str, turn: int, base: str) -> int:
+def turn_end_seq(session_id: str, turn: int, client: DshClient) -> int:
     """The seq of turn `turn`'s turn/end, paging back through the history."""
     before = None
     while True:
-        value = rpc("session.history", {"sessionId": session_id, "maxMessages": HISTORY_PAGE,
-                                        **({"beforeSeq": before} if before else {})}, base=base)
+        value = client.rpc("session.history", {"sessionId": session_id, "maxMessages": HISTORY_PAGE,
+                                        **({"beforeSeq": before} if before else {})})
         events = [item.get("event") or item for item in value.get("events", [])]
         for event in events:
             if event.get("type") == "turn/end" and (event.get("data") or {}).get("turn") == turn:
@@ -1192,13 +1039,13 @@ def cmd_fork(args) -> int:
     So `after_turn=N` (keep turns 1..N) is the unambiguous form; `at_seq`
     passes dsh's own anchor through. Neither: up to the last completed turn.
     """
-    source = find_session(args.session, args.base)["sessionId"]
+    source = find_session(args.session, args.client)["sessionId"]
     payload: dict = {"sessionId": source}
     if args.after_turn is not None:
-        payload["atSeq"] = turn_end_seq(source, args.after_turn, args.base)
+        payload["atSeq"] = turn_end_seq(source, args.after_turn, args.client)
     elif args.at_seq is not None:
         payload["atSeq"] = args.at_seq
-    value = rpc("session.fork", payload, base=args.base)
+    value = args.client.rpc("session.fork", payload)
     print(json.dumps({"sessionId": value["sessionId"], "forkedFrom": source,
                       **({"atSeq": payload["atSeq"]} if "atSeq" in payload else {})},
                      indent=2))
@@ -1206,17 +1053,17 @@ def cmd_fork(args) -> int:
 
 
 def cmd_models(args) -> int:
-    summary = find_session(args.session, args.base)
+    summary = find_session(args.session, args.client)
     effort = getattr(args, "reasoning_effort", None)
     if effort or getattr(args, "model", None):
         if summary.get("running"):
             raise RpcError("the worker is mid-turn; change its model or effort when it is idle")
         print(json.dumps({"sessionId": summary["sessionId"],
-                          **select_model(summary["sessionId"], args.base,
+                          **select_model(summary["sessionId"], args.client,
                                          getattr(args, "provider", None),
                                          getattr(args, "model", None), effort)}, indent=2))
         return 0
-    value = rpc("session.models", {"sessionId": summary["sessionId"]}, base=args.base)
+    value = args.client.rpc("session.models", {"sessionId": summary["sessionId"]})
     catalog = []
     for group in value.get("groups", []):
         for model in group.get("models", []):
@@ -1249,7 +1096,7 @@ def cmd_cancel(args) -> int:
     `turn/end` with kind `aborted` and reason `user`. This waits for that and
     reports it, so a no-op cancel is visibly a no-op.
     """
-    summary = find_session(args.session, args.base)
+    summary = find_session(args.session, args.client)
     session_id = summary["sessionId"]
 
     if not summary.get("running"):
@@ -1257,15 +1104,15 @@ def cmd_cancel(args) -> int:
         print(json.dumps({
             "cancelled": False,
             "reason": "session was already idle — nothing was running to cancel",
-            "lastTurnEnd": last_turn_end(session_id, args.base),
+            "lastTurnEnd": last_turn_end(session_id, args.client),
         }, indent=2))
         return 0
 
-    before = head_seq(session_id, args.base)
-    receipt = rpc("session.cancel", {"sessionId": session_id}, base=args.base)
+    before = head_seq(session_id, args.client)
+    receipt = args.client.rpc("session.cancel", {"sessionId": session_id})
     completed, info = wait_for_turn_end(
-        session_id, args.base, before, timeout=args.timeout, poll=2.0)
-    end = info.get("turnEnd") or last_turn_end(session_id, args.base)
+        session_id, args.client, before, timeout=args.timeout, poll=2.0)
+    end = info.get("turnEnd") or last_turn_end(session_id, args.client)
     kind = (end or {}).get("kind")
     print(json.dumps({
         # `aborted` is the abort landing; any other kind means the turn ended on
@@ -1301,10 +1148,9 @@ def cmd_name(args) -> int:
     A title that normalises to empty is rejected as `title-invalid`, so the
     accepted string is echoed back rather than assumed.
     """
-    summary = find_session(args.session, args.base)
-    result = rpc("session.rename",
-                 {"sessionId": summary["sessionId"], "title": args.title},
-                 base=args.base)
+    summary = find_session(args.session, args.client)
+    result = args.client.rpc("session.rename",
+                             {"sessionId": summary["sessionId"], "title": args.title})
     accepted = result.get("title")
     print(json.dumps({
         "sessionId": summary["sessionId"],
@@ -1467,11 +1313,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    args.client = CheckedClient(HttpClient(args.base))
     try:
         return args.func(args)
     except RpcError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    finally:
+        for line in args.client.drift_lines():
+            print(f"warning: the dsh API differs from the tested shape: {line}", file=sys.stderr)
 
 
 if __name__ == "__main__":

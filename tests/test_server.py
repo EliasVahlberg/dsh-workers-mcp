@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import ScriptedClient
+
 from dsh_workers_mcp import dshctl, server
 
 
@@ -106,7 +108,7 @@ def test_rpc_failure_becomes_an_is_error_result(monkeypatch) -> None:
     def boom(*_a, **_k):
         raise dshctl.RpcError("cannot reach 127.0.0.1:3080 — is `dsh web` running?")
 
-    monkeypatch.setattr(dshctl, "rpc", boom)
+    monkeypatch.setattr(server, "CLIENT", ScriptedClient(rpc=boom))
     response = _call("dsh_list")
     assert response["result"]["isError"] is True
     assert "dsh web" in response["result"]["content"][0]["text"]
@@ -118,7 +120,7 @@ def test_unexpected_exception_is_contained(monkeypatch, capsys) -> None:
     def boom(*_a, **_k):
         raise ValueError("unexpected")
 
-    monkeypatch.setattr(dshctl, "rpc", boom)
+    monkeypatch.setattr(server, "CLIENT", ScriptedClient(rpc=boom))
     response = _call("dsh_list")
     assert response["result"]["isError"] is True
     assert "internal error" in response["result"]["content"][0]["text"]
@@ -143,8 +145,7 @@ def test_no_tool_raises_through_handle(name: str, monkeypatch) -> None:
     def boom(*_a, **_k):
         raise dshctl.RpcError("stubbed")
 
-    monkeypatch.setattr(dshctl, "rpc", boom)
-    monkeypatch.setattr(dshctl, "read_stream", lambda *a, **k: [])
+    monkeypatch.setattr(server, "CLIENT", ScriptedClient(rpc=boom, post=boom, stream=lambda path: []))
     response = _call(name, {})
     assert response is not None
     assert "result" in response or "error" in response
@@ -184,8 +185,8 @@ def test_fork_after_turn_anchors_on_that_turns_end(monkeypatch, capsys) -> None:
             return {"sessionId": "session-child"}
         raise AssertionError(method)
 
-    monkeypatch.setattr(dshctl, "rpc", rpc)
-    args = type("A", (), dict(session="src", after_turn=2, at_seq=None, base=None))()
+    client = ScriptedClient(rpc=rpc)
+    args = type("A", (), dict(session="src", after_turn=2, at_seq=None, client=client))()
     assert dshctl.cmd_fork(args) == 0
     out = _json.loads(capsys.readouterr().out)
     assert out == {"sessionId": "session-child", "forkedFrom": "session-src", "atSeq": 95}

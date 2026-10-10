@@ -1,0 +1,217 @@
+{
+  "dsh": {
+    "commit": "b150a55",
+    "package": "0.1.1-rc.2"
+  },
+  "shapes": {
+    "host.describe": {
+      "attachedSessions": "int",
+      "canOpenPath": "bool",
+      "cwd": "str",
+      "home": "str",
+      "model": "str",
+      "provider": "str",
+      "version": "str"
+    },
+    "session.history": {
+      "events": [
+        {
+          "event": {
+            "data": {
+              "chunk": {
+                "argumentsDelta": "str",
+                "blockType": "str",
+                "id": "str",
+                "index": "int",
+                "name": "str",
+                "type": "str"
+              },
+              "step": "int",
+              "turn": "int"
+            },
+            "seq": "int",
+            "time": "int",
+            "type": "str"
+          }
+        }
+      ],
+      "hasMore": "bool",
+      "projections": {
+        "asOfSeq": "int",
+        "values": {
+          "contextBreakdown": {
+            "messageTokens": "int",
+            "systemTokens": "int",
+            "toolsTokens": "int"
+          },
+          "contextPressure": {
+            "contextWindow": "int",
+            "pressureTokens": "int",
+            "projectedTokens": "int"
+          },
+          "goal": "null",
+          "imageLimits": {
+            "maxImageBytes": "int",
+            "maxImageDimension": "int",
+            "maxImagePixels": "int",
+            "maxImagesPerMessage": "int",
+            "maxMessageImageBytes": "int",
+            "mediaTypes": [
+              "str"
+            ]
+          },
+          "permissions": {
+            "currentValue": "str",
+            "options": [
+              {
+                "description": "str",
+                "name": "str",
+                "value": "str"
+              }
+            ]
+          },
+          "plan": {
+            "active": "bool",
+            "pending": "bool"
+          },
+          "sessionListMetadata": {
+            "blank": "bool",
+            "lastPromptAt": "int"
+          },
+          "sessionStats": {
+            "decodeMs": "int",
+            "decodeTokens": "int",
+            "llmMs": "int",
+            "steps": "int",
+            "toolMs": "int",
+            "ttftMs": "int",
+            "ttftSteps": "int",
+            "turns": "int"
+          },
+          "subagent": "null",
+          "subagentTiming": {
+            "settledMs": "int"
+          },
+          "title": "str",
+          "todos": "null",
+          "tokenUsage": {
+            "cacheReadTokens": "int",
+            "cacheWriteTokens": "int",
+            "outputTokens": "int",
+            "uncachedInputTokens": "int"
+          }
+        }
+      }
+    },
+    "session.list": {
+      "items": [
+        {
+          "agentPreset": "str",
+          "blank": "bool",
+          "cwd": "str",
+          "origin": "str",
+          "parentSessionId": "str",
+          "projections": {
+            "asOfSeq": "int",
+            "values": {
+              "contextBreakdown": {
+                "messageTokens": "int",
+                "systemTokens": "int",
+                "toolsTokens": "int"
+              },
+              "contextPressure": {
+                "contextWindow": "int",
+                "pressureTokens": "int",
+                "projectedTokens": "int"
+              },
+              "goal": "any|null",
+              "imageLimits": {
+                "maxImageBytes": "int",
+                "maxImageDimension": "int",
+                "maxImagePixels": "int",
+                "maxImagesPerMessage": "int",
+                "maxMessageImageBytes": "int",
+                "mediaTypes": [
+                  "str"
+                ]
+              },
+              "permissions": {
+                "currentValue": "str",
+                "options": [
+                  {
+                    "description": "str",
+                    "name": "str",
+                    "value": "str"
+                  }
+                ]
+              },
+              "plan": {
+                "active": "bool",
+                "pending": "bool"
+              },
+              "sessionListMetadata": {
+                "blank": "bool",
+                "lastPromptAt": "int|null"
+              },
+              "sessionStats": {
+                "decodeMs": "int",
+                "decodeTokens": "int",
+                "llmMs": "int",
+                "steps": "int",
+                "toolMs": "int",
+                "ttftMs": "int",
+                "ttftSteps": "int",
+                "turns": "int"
+              },
+              "subagent": "any",
+              "subagentTiming": {
+                "settledMs": "int"
+              },
+              "title": "null|str",
+              "todos": "any|null",
+              "tokenUsage": {
+                "cacheReadTokens": "int",
+                "cacheWriteTokens": "int",
+                "outputTokens": "int",
+                "uncachedInputTokens": "int"
+              }
+            }
+          },
+          "running": "bool",
+          "sessionId": "str",
+          "updatedAt": "int"
+        }
+      ]
+    },
+    "session.models": {
+      "current": {
+        "model": "str",
+        "provider": "str",
+        "reasoningEffort": "str"
+      },
+      "failures": [],
+      "groups": [
+        {
+          "id": "str",
+          "models": [
+            {
+              "id": "str",
+              "name": "str",
+              "reasoning": {
+                "defaultEffort": "str",
+                "efforts": [
+                  {
+                    "id": "str",
+                    "name": "str"
+                  }
+                ]
+              }
+            }
+          ],
+          "name": "str"
+        }
+      ],
+      "routable": "bool"
+    }
+  }
+}

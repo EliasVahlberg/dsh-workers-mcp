@@ -7,6 +7,7 @@ starting an unattended work loop.
 from __future__ import annotations
 
 import pytest
+from fakes import ScriptedClient
 
 from dsh_workers_mcp import dshctl, server
 
@@ -32,7 +33,7 @@ def fake_rpc(home, rewrite):
     calls = []
     current = {"provider": "deepseek-official", "model": "deepseek-flash"}
 
-    def rpc(method, payload=None, base=None):
+    def rpc(method, payload=None):
         calls.append(method)
         if method == "session.create":
             return {"sessionId": "session-new"}
@@ -55,9 +56,8 @@ def fake_rpc(home, rewrite):
 
 def create(monkeypatch, capsys, rpc) -> dict:
     import json
-    monkeypatch.setattr(dshctl, "rpc", rpc)
     args = type("A", (), dict(cwd="/w", preset=None, session_id=None, provider="qwen-cloud",
-                              model="qwen3.8-flash", permission=None, base=None,
+                              model="qwen3.8-flash", permission=None, client=ScriptedClient(rpc=rpc),
                               reasoning_effort=None))()
     assert dshctl.cmd_create(args) == 0
     return json.loads(capsys.readouterr().out)
@@ -85,8 +85,7 @@ def test_pin_that_did_not_rewrite_reports_unchanged(dsh_home, monkeypatch, capsy
 
 def test_goal_set_needs_explicit_start(monkeypatch) -> None:
     monkeypatch.setattr(dshctl, "find_session", lambda s, b=None: {"sessionId": "session-x"})
-    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: (_ for _ in ()).throw(
-        AssertionError("must not reach dsh")))
+    monkeypatch.setattr(server, "CLIENT", ScriptedClient())        # any call to dsh fails the test
     monkeypatch.setattr(server, "STATE", None)
     result = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
         "name": "dsh_goal", "arguments": {"session": "x", "action": "set", "objective": "o"}}})
@@ -97,7 +96,7 @@ def test_goal_set_needs_explicit_start(monkeypatch) -> None:
 def test_goal_set_with_start_reaches_dsh(monkeypatch) -> None:
     sent = []
     monkeypatch.setattr(dshctl, "find_session", lambda s, b=None: {"sessionId": "session-x"})
-    monkeypatch.setattr(dshctl, "rpc", lambda m, p, base=None: sent.append((m, p)) or {"ok": 1})
+    monkeypatch.setattr(server, "CLIENT", ScriptedClient(rpc=lambda m, p: sent.append((m, p)) or {"ok": 1}))
     monkeypatch.setattr(server, "STATE", None)
     result = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
         "name": "dsh_goal", "arguments": {"session": "x", "action": "set", "objective": "o",
@@ -120,11 +119,11 @@ def test_effort_only_change_keeps_the_model_and_the_default(dsh_home, monkeypatc
     """Friction 29 Sep: an over-thorough implementer on 'high'; effort must be settable per session."""
     import json
     rpc, calls = fake_rpc(dsh_home, rewrite=False)
-    monkeypatch.setattr(dshctl, "rpc", rpc)
+    client = ScriptedClient(rpc=rpc)
     monkeypatch.setattr(dshctl, "find_session",
                         lambda s, b=None: {"sessionId": "session-w", "running": False})
     args = type("A", (), dict(session="w", reasoning_effort="low", provider=None, model=None,
-                              base=None))()
+                              client=client))()
     assert dshctl.cmd_models(args) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["selectedModel"] == "deepseek-official/deepseek-flash"
@@ -135,8 +134,8 @@ def test_effort_only_change_keeps_the_model_and_the_default(dsh_home, monkeypatc
 def test_effort_change_refused_mid_turn(monkeypatch) -> None:
     monkeypatch.setattr(dshctl, "find_session",
                         lambda s, b=None: {"sessionId": "session-w", "running": True})
-    monkeypatch.setattr(dshctl, "rpc", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+    client = ScriptedClient()
     args = type("A", (), dict(session="w", reasoning_effort="low", provider=None, model=None,
-                              base=None))()
+                              client=client))()
     with pytest.raises(dshctl.RpcError, match="mid-turn"):
         dshctl.cmd_models(args)
