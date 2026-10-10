@@ -14,7 +14,7 @@ TEMPLATE = (OVERLAY / "policy.patch.yml").read_text()
 
 
 def test_the_overlay_ships_in_the_package_with_everything_dsh_needs() -> None:
-    for name in ("index.ts", "package.json", "policy.patch.yml", "README.md", "test.ts"):
+    for name in ("index.ts", "package.json", "policy.patch.yml", "README.md", "test.ts", "RECIPES.md"):
         assert (OVERLAY / name).is_file(), name
     assert '"type": "module"' in (OVERLAY / "package.json").read_text()   # load-bearing
 
@@ -33,7 +33,9 @@ def test_the_template_carries_nothing_personal_or_project_specific() -> None:
         assert "/home/" not in text and "~/system" not in text
         assert not re.search(r"\b(elias|necesse|arcane|saltglass|deepseek-harness-eval)\b",
                              text, re.IGNORECASE)
-        assert "heredoc" not in text.lower()
+    # The defaults carry no heredoc rule. RECIPES.md offers one, and the README links to it.
+    assert "heredoc" not in TEMPLATE.lower()
+    assert "heredoc" not in (OVERLAY / "index.ts").read_text().lower()
 
 
 def test_rendering_fills_in_an_absolute_path_that_exists() -> None:
@@ -74,6 +76,18 @@ def test_the_template_and_the_plugin_test_use_the_same_push_pattern() -> None:
     shipped = re.search(r"pattern: '(\\bgit\\b[^']+)'", TEMPLATE).group(1)
     tested = re.search(r"const push = '([^']+)'", test_ts).group(1)
     assert shipped.replace("\\", "\\\\") == tested
+
+
+def test_every_recipe_pattern_is_the_one_test_ts_checks() -> None:
+    """RECIPES.md shows YAML; test.ts holds the same regexes as JavaScript strings."""
+    recipes = (OVERLAY / "RECIPES.md").read_text()
+    test_ts = (OVERLAY / "test.ts").read_text()
+    patterns = re.findall(r"^\s+pattern: '(.*)'$", recipes, flags=re.M)
+    assert len(set(patterns)) == 4        # the main-checkout rule appears for write and edit
+    for yaml_text in patterns:
+        regex = yaml_text.replace("''", "'")                      # YAML single quotes
+        as_js = regex.replace("\\", "\\\\").replace("'", "\\'")    # a JS single-quoted string
+        assert f"'{as_js}'" in test_ts, regex
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")

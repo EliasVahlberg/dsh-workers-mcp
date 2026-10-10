@@ -96,9 +96,12 @@ rules for what your project cannot afford. Some that fit most projects:
 ```
 
 (These three are exercised in `test.ts`.) A fourth, for the dsh settings
-directory, is in [`docs/SANDBOX.md`](../../docs/SANDBOX.md), with its cases in `test.ts`. A bad regex or a malformed rule fails
+directory, is in [`docs/SANDBOX.md`](../../docs/SANDBOX.md), with its cases in
+`test.ts`. [`RECIPES.md`](RECIPES.md) has more optional rules: no writes in the
+main checkout, no commands outside the worktrees, and a refusal for heredocs
+that tells the worker what to do instead. A bad regex or a malformed rule fails
 the boot, not the first tool call, because the plugin validates its config at
-load. Add a case to `test.ts` for each rule you add; it needs only `node`:
+load. Add a case to `test.ts` for each rule you add. It needs only `node`:
 `node test.ts`.
 
 Note that a non-insert patch replaces an entry's whole config, which is why the
