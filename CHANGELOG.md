@@ -4,7 +4,7 @@ This file follows [Keep a Changelog](https://keepachangelog.com/). The version i
 `__version__` in `src/dsh_workers_mcp/__init__.py`. Change the heading of a release
 from `(unreleased)` to its date when you tag it.
 
-## 0.1.0 (unreleased)
+## 0.1.0 - 2026-10-10
 
 The first release. The project is alpha: tool names, tool arguments and the state
 format can change. The Status section of the README lists what ran and what did not.
