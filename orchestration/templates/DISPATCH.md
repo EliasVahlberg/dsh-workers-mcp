@@ -15,10 +15,10 @@ to end first, report where you are and what is next. Ask when you are stuck.
 
 Acceptance (the lead checks each line itself):
 - <checkable line, e.g. `make test` passes>
-- <checkable line, e.g. a scenario in tests/… asserts X>
-- <for an invariant, the instrument: e.g. "an exact level-wide count per
-  component, asserted before and after each operation">
-- <scope line, e.g. only files under src/…/plot/ change>
+- <checkable line, e.g. a test in tests/… asserts X>
+- <for an invariant, the instrument: e.g. "an exact row count per table,
+  asserted before and after each operation">
+- <scope line, e.g. only files under src/billing/ change>
 
 Expected size of the whole task: <e.g. 6 files, ~500 lines>. Before each
 commit run `git diff --stat main...`; if the total is past twice that, stop

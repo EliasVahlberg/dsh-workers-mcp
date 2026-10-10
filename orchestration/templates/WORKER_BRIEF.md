@@ -12,7 +12,7 @@ Read, in this order:
 Conventions:
 - You work in <worktree path> on branch <branch>. Commit there. Never push:
   the lead merges and pushes.
-- Build/test with <commands>. <Environment needed, e.g. GRADLE_USER_HOME>.
+- Build/test with <commands>. <Environment needed, e.g. a cache directory or a credentials path>.
 - Do not edit outside your worktree unless a task says so.
 - Run each check once and read its saved output (<where it is kept, e.g.
   build/logs/>). Never rerun a suite only to see its output again; rerun it

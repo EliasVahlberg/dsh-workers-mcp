@@ -30,6 +30,23 @@ written down improves the method; one that is not is invisible.
   what you are confident in, record it, and name it in your report so the
   user can overrule it. Reversible choices need no sign-off from the user.
 
+## What this assumes
+
+- **Code in git, and one branch and worktree per implementation task.** The
+  worker commits there; you verify the diff and merge. That is what makes
+  parallel work safe and a rejection cheap.
+- **Work that is not code** (research, writing, analysis) uses the same loop
+  with three substitutions. Keep the artifact in git when you can: a document on
+  its own branch can be diffed and reverted like code. Write acceptance lines
+  that can be checked on the artifact ("every claim links a source", "the
+  document builds", "the table has these columns and no empty cells") instead of
+  "the suite passes". Verify by reading the artifact and spot-checking its
+  sources, not by running tests. If the work is not in git at all, give the task
+  a scratch directory as its `worktree` and checkpoint before you dispatch.
+  This is reasoned, not yet tried on a real non-code project.
+- **A dsh server that is already running** (`dsh web`), reachable at the URL
+  the MCP server is given. The method does not start or stop it.
+
 ## The state directory
 
 The server keeps its records in `.orchestrator/`. Files marked *server* are
@@ -72,7 +89,7 @@ area, and compaction keeps that in dense form (PLAYBOOKS §5, Context).
 
 1. `dsh_create` with `cwd` = the workspace root and `permission` set. Never
    dispatch anything under the default.
-2. `dsh_name` with `<role> — <scope>`, e.g. `implementer — plot networks`.
+2. `dsh_name` with `<role> — <scope>`, e.g. `implementer — billing API`.
 3. `dsh_roster action=set role=…`.
 4. Its first task is the brief (`templates/WORKER_BRIEF.md`): the role, the area
    it owns, what to read, the conventions, how to report. Ask it to confirm
@@ -109,7 +126,7 @@ rejected ──dsh_task(task_id)──▶ dispatched      (the server logs the r
 recorded in `DECISIONS.md`) or research delivered to a doc.
 
 1. **Define it.** `dsh_tasks action=add` with a title and **checkable
-   acceptance** ("`make test` passes and the new scenario covers X"). Avoid
+   acceptance** ("`make test` passes and the new test covers X"). Avoid
    vague ones like "works well". Set `branch` and `worktree` for implementation
    tasks.
 2. **Dispatch through the task.** `dsh_task … task_id=T-00n`. The prompt says

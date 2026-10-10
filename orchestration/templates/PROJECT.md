@@ -41,4 +41,4 @@ what is worth stating explicitly, and the checks that gate it.
 
 Keep it short. Every line here is a place the team stops and waits.
 
-- `<e.g. releases, tags, making a repo public, anything that runs the game window>`
+- `<e.g. releases, tags, making a repo public, anything that opens a GUI or a browser window>`

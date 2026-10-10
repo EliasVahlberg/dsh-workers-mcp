@@ -74,8 +74,11 @@ Server flags: `--state-dir <path>` sets where orchestrator state is written;
 `danger-full-access` (refused by default).
 
 The companion skill at [`skills/dsh-workers/SKILL.md`](skills/dsh-workers/SKILL.md)
-documents the protocol, the operational traps, and compaction semantics. For
-kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-workers/SKILL.md`.
+documents the protocol, the operational traps, and compaction semantics. It is a
+plain markdown file with frontmatter: load it through whatever your MCP-capable
+agent uses for skills or standing instructions (kiro-cli, for example,
+references it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-workers/SKILL.md`;
+a client without skills can include the file in its instructions).
 
 ## Permission presets
 
@@ -251,7 +254,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-267 tests, no live server needed. They cover the places where being wrong is
+268 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

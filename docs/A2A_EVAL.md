@@ -24,7 +24,7 @@ push notifications to a webhook.
 
 ## dsh has no A2A support — verified
 
-Grepped `reference/deepseek-harness/packages` for `a2a`, `agent2agent`, and
+Grepped the `packages` directory of a dsh source checkout for `a2a`, `agent2agent`, and
 `agent-card.json` across `*.ts`/`*.md`/`*.json`, excluding `node_modules`:
 **zero hits.**
 

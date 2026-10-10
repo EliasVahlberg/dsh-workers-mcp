@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MCP stdio server exposing dshctl's worker-session operations to a kiro-cli
-orchestrator agent.
+MCP stdio server exposing dshctl's worker-session operations to an
+MCP-capable orchestrator agent.
 
 Protocol: JSON-RPC 2.0 over newline-delimited stdin/stdout. stdout carries
 protocol frames ONLY — all diagnostics go to stderr, or the transport breaks.

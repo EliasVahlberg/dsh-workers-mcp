@@ -56,21 +56,22 @@ go ahead if that is within your remit.
   ends before it is done, the report is progress, not a verdict, and the reply
   is "continue";
 - has acceptance you can check yourself, line by line:
-  `make test passes`, `a scenario asserts the loader moves 30 flour`,
-  `no file outside src/…/plot/ changes`. Never "works well" or "is clean";
+  `make test passes`, `a test asserts the importer skips a duplicate row`,
+  `no file outside src/billing/ changes`. Never "works well" or "is clean";
 - names the **instrument** for every invariant, not only the property.
-  "No seed is lost (scenarios with counts)" was met literally with drop
-  windows that could not see a loss of 4 of 6; "asserted on an exact
-  level-wide count, per component, before and after each operation" could not
-  have been. A green suite says the tests pass, not that they measure the
-  right thing: read the assertions behind every invariant line (§6);
-- is **sized to the change.** A retune or a small fix needs the change, the
-  existing suite green, and a doc line. New test classes or harnesses only
-  where the task introduces an invariant the suite cannot already see. Asking
-  for more is how a constants change comes back as 13 files and 750 lines;
+  "No row is lost (tests with counts)" can be met literally by a test that
+  cannot see 4 of 6 rows go missing; "asserted on an exact row count per table,
+  before and after each operation" cannot. A green suite says the tests pass,
+  not that they measure the right thing: read the assertions behind every
+  invariant line (§6);
+- is **sized to the change.** A constants change or a small fix needs the
+  change, the existing suite green, and a doc line. New test classes or
+  harnesses only where the task introduces an invariant the suite cannot
+  already see. Asking for more is how a constants change comes back as 13 files
+  and 750 lines;
 - states the **expected size** of the whole piece (files, rough lines). It
   describes the piece; it is not a cap to cut against. Its job is to let the
-  worker notice when a retune is turning into a rewrite;
+  worker notice when a small change is turning into a rewrite;
 - says what is out of scope, so the worker does not "improve" neighbours.
 
 **Write numeric decisions as a formula plus one worked number**, and the
@@ -96,10 +97,10 @@ over-works the trivial and under-works the hard:
 
 | Rung | The piece gets | When |
 |---|---|---|
-| P0 | a few checkable outcomes and pointers to the code | small, reversible, well-trodden: a retune, a fix with a known cause |
+| P0 | a few checkable outcomes and pointers to the code | small, reversible, well-trodden: a constants change, a fix with a known cause |
 | P1 | a full dispatch (`templates/DISPATCH.md`); the default | most pieces |
-| P2 | P1, after a research round | the spec would otherwise freeze on an unknown: engine behaviour nobody has verified, an open design space |
-| P3 | P2, plus positions from two workers (§7) and your decision | a wrong plan would look right from inside: load-bearing shared code, save formats, conservation rules |
+| P2 | P1, after a research round | the spec would otherwise freeze on an unknown: library or platform behaviour nobody has verified, an open design space |
+| P3 | P2, plus positions from two workers (§7) and your decision | a wrong plan would look right from inside: load-bearing shared code, data formats, migrations, invariants other code relies on |
 
 The test for going up a rung is "would a wrong plan be expensive, hard to undo
 and invisible from inside?", not "is this piece important?". An important
@@ -131,7 +132,7 @@ Mechanics:
 - **Model and reasoning effort are cost knobs.** Choose them per task, while
   the worker is idle: `dsh_models session=… reasoning_effort=…`, and
   `provider=… model=…` for a different model. A well-specified task (a
-  retune, a mechanical change) may not need the highest effort or the
+  constants change, a mechanical change) may not need the highest effort or the
   largest model; debugging, design and load-bearing shared code may. `PROJECT.md`
   lists the models on offer, their prices, and which choices are yours. A
   switch changes only that worker; the server restores the global default.
@@ -358,9 +359,10 @@ branch if it holds anything worth reading later, and say so in the note.
 ## 9. Parallel work and keeping the team informed
 
 - **Ownership.** Before dispatching in parallel, write each worker's file
-  scope in its task note ("owns `src/…/plot/`, may not touch `MachineCore`").
+  scope in its task note ("owns `src/billing/`, may not touch `core/db.py`").
   Two tasks that must edit the same file are sequential, not parallel.
-- **Shared files** (build files, registries, the main mod class, changelogs):
+- **Shared files** (build files, registries, the application entry point,
+  changelogs):
   one owner per round, or leave them to the last task, or apply those edits
   yourself at merge time.
 - **After every merge**, ask: does any other worker's branch touch these
@@ -387,10 +389,10 @@ Lead with the outcome, then evidence, then what you decided, then only what
 truly needs them:
 
 ```
-Done: T-004 (plot crop squares) merged and pushed as abc1234, full suite green.
+Done: T-004 (CSV export) merged and pushed as abc1234, full suite green.
 In progress: T-005 with the implementer, blocked on nothing.
-Decided (overrule if you disagree): 2 seeds per tile; clear refunds planted seeds.
-Needs you: the bottled-oil fork (T-006 waits on it; my pick is bottles, because …).
+Decided (overrule if you disagree): exports capped at 10k rows; a failed export is retried once.
+Needs you: the storage fork (T-006 waits on it; my pick is Postgres, because …).
 Friction: one entry (T-005 was cut into three tasks with no reason given; next time, one).
 ```
 

@@ -211,7 +211,7 @@ def test_age(delta, expected) -> None:
 
 
 def test_long_free_text_roles_are_cut_to_their_first_clause() -> None:
-    long_role = "implementer \u2014 machine mechanics (plots, machine base: beat, level jobs, power)"
+    long_role = "implementer \u2014 billing API (invoices, tax rules, retries, audit trail)"
     assert brief._role({"role": long_role}) == "implementer"
     assert brief._role({"role": "x" * 100}) == "x" * 39 + "\u2026"
     assert brief._role({}) == "(no role)"

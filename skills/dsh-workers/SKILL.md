@@ -11,7 +11,7 @@ long-lived teammates that do the work. Interaction goes through the
 worker sessions stay visible in the browser UI and inherit
 `$DSH_HOME/settings.yaml` (model wiring, vision support) by construction.
 
-Tools come from the `dsh-workers` MCP server (`tools/dshctl/mcp_server.py`).
+Tools come from the `dsh-workers` MCP server (the `dsh-workers-mcp` package).
 The same operations are available as a CLI for ad-hoc use:
 
 ```bash
@@ -219,9 +219,9 @@ turn unchanged). That is what makes it an identifier rather than a description.
 
 Name by **standing role, not current task** — the session outlives the task:
 
-- good: `implementer — machine entities`, `reviewer — takes positions`,
+- good: `implementer — billing API`, `reviewer — takes positions`,
   `sandbox — safe to break`
-- bad: `fixing the belt test`, `v0.6 fuel bands` (stale within the hour)
+- bad: `fixing the flaky export test`, `v0.6 rate limits` (stale within the hour)
 
 Name a worker when you create it, before dispatching anything. Titles are
 collapsed to one line and capped at 80 UTF-8 bytes; `dsh_name` echoes the
@@ -285,8 +285,8 @@ revision-one goal", `packages/goal/goal/src/fold.ts`), and the goal round
 driver then feeds an idle worker round after round, up to `maxGoalRounds`
 (default 256), with no task from anyone. Learned the hard way: an orchestrator
 set goals as "standing orientation" on two fresh hires, and the implementer
-invented work at once: a worktree, a branch and edits to ROADMAP and
-`PlotGraph`. `pause` did not stop the round already running. So the server
+invented work at once: a worktree, a branch and edits to the roadmap and a core
+module. `pause` did not stop the round already running. So the server
 refuses `set` unless `start=true`.
 
 Use a goal only to hand a worker an objective to pursue on its own (a
@@ -343,8 +343,8 @@ verbatim — the "refresh-recovery baseline". A short-lived connection is
 therefore a complete snapshot of outstanding work, so nothing needs to hold a
 socket open to notice a blocked worker.
 
-Full method map lives in
-`reference/deepseek-harness/packages/host/apiproxy/src/api/rpc-map.ts`
+Full method map lives in the dsh source, at
+`packages/host/apiproxy/src/api/rpc-map.ts`
 (~40 methods: `session.*`, `subagent.*`, `workspace.*`, `agentPreset.*`,
 `goal.*`, `skill.*`, `host.*`).
 

@@ -76,14 +76,14 @@ def test_default_checks(command, via) -> None:
 
 
 def test_acceptance_spans_and_project_patterns_define_checks() -> None:
-    spans = digest.check_spans("`make qa-world` builds it and `src/Foo.java` is touched; "
-                               "`README.md updated` and `pytest -k belt` pass")
-    assert spans == ["make qa-world", "pytest -k belt"]       # a file name is not a command
-    seg = digest.analyze("cd w && make qa-world 2>&1 | tail")[1]
+    spans = digest.check_spans("`make qa-smoke` builds it and `src/Foo.py` is touched; "
+                               "`README.md updated` and `pytest -k export` pass")
+    assert spans == ["make qa-smoke", "pytest -k export"]       # a file name is not a command
+    seg = digest.analyze("cd w && make qa-smoke 2>&1 | tail")[1]
     assert digest.check_via(seg, [], []) is None
     assert digest.check_via(seg, [], spans) == "acceptance"
     assert digest.check_via(seg, [r"^make qa-"], []) == "pattern"
-    read_only = digest.analyze("grep 'make qa-world' notes.txt")[0]
+    read_only = digest.analyze("grep 'make qa-smoke' notes.txt")[0]
     assert digest.check_via(read_only, [], spans) is None     # reading it is not running it
 
 
