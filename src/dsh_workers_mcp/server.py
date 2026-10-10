@@ -24,7 +24,7 @@ from dsh_workers_mcp import brief as brief_mod
 from dsh_workers_mcp import dshctl
 from dsh_workers_mcp import state as state_mod
 from dsh_workers_mcp.shape import CheckedClient
-from dsh_workers_mcp.transport import DshClient, HttpClient
+from dsh_workers_mcp.transport import DEFAULT_BASE, DshClient, HttpClient
 
 # The orchestrator state directory (see state.py). Set by main(); None disables
 # state recording entirely, which is also what a bare import / the tests get.
@@ -794,7 +794,7 @@ def handle(request: dict) -> dict | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global STATE
+    global STATE, CLIENT
     parser = argparse.ArgumentParser(prog="dsh-workers-mcp")
     parser.add_argument("--state-dir", help=(
         "orchestrator state directory (logs, history mirror, roster, tasks). "
@@ -805,7 +805,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-full-access", action="store_true", help=(
         "let dsh_permission / dsh_create apply danger-full-access. Off by default, "
         "so the worker tools can be auto-approved for an orchestrator"))
+    parser.add_argument("--base", default=DEFAULT_BASE,
+                        help="URL of the dsh web server (default: %(default)s)")
     args = parser.parse_args(argv)
+    CLIENT = CheckedClient(HttpClient(args.base))
     if args.allow_full_access:
         FORBIDDEN_PRESETS.clear()
     if not args.no_state:

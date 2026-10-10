@@ -6,6 +6,8 @@ The premise: a `dsh` worker session builds up orientation, and orientation is ex
 
 The runtime is **stdlib-only**. It has no dependencies, and that includes a WebSocket reader that we wrote by hand. The goal is that it can sit beside an agent harness and not add a dependency tree to it.
 
+**New here?** Follow [`docs/QUICKSTART.md`](docs/QUICKSTART.md). It takes one worker through one task in about 15 minutes.
+
 ## What it is not
 
 **Not an [A2A](https://a2a-protocol.org/) implementation.** It has no Agent Cards, no `message/send` and no Task lifecycle. We evaluated A2A and declined it on purpose. Its guiding principle is *opaque execution*. About half of the value here is the opposite: the tools show context pressure, cache-hit rates, step counts, turn-end reasons and reasoning-block sizes, so that an orchestrator can supervise closely. [`docs/A2A_EVAL.md`](docs/A2A_EVAL.md) gives the reasoning. It also names the three A2A ideas that are worth borrowing, and the conditions that would change the verdict.
@@ -52,6 +54,7 @@ Use an absolute path. A relative path resolves against the working directory of 
 Use `uv run --project`. Do not use `uv --directory`. The option `--directory` changes the working directory to this repo. That moves the default state directory (below) here, and out of the workspace where the agent works.
 
 The server flags:
+- `--base <url>` sets the dsh server (default `http://127.0.0.1:3080`).
 - `--state-dir <path>` sets where the server writes orchestrator state.
 - `--no-state` records nothing and hides `dsh_roster` and `dsh_tasks`.
 - `--allow-full-access` lets `dsh_permission` and `dsh_create` apply `danger-full-access`. The server refuses it by default.
@@ -201,7 +204,7 @@ uv run python scripts/complexity.py
 
 CI runs these on every push and pull request, with the tests on Python 3.10, 3.11, 3.12 and 3.13. The last command is a complexity ratchet. `complexity-baseline.json` records each function with a cyclomatic complexity of 11 or more. A new function above that, or a rise in a recorded one, fails the check. After you lower one, run `uv run python scripts/complexity.py --update` and commit the file.
 
-317 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+326 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious
