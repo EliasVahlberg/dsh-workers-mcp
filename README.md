@@ -122,6 +122,8 @@ The supervision-level presets (`read-only`, `supervised`, `autonomous`) come fro
 
 [`orchestration/METHOD.md`](orchestration/METHOD.md) is the working method for a lead agent that drives these workers. It covers the session start, hiring, the task lifecycle, when to answer a worker and when to escalate, approvals, merge and release, and a `FRICTION.md` loop for the places where the method did not fit. `orchestration/templates/` holds the files for each project (`PROJECT.md`, `DECISIONS.md`, `FRICTION.md`, `WORKER_BRIEF.md`). Copy them into the `.orchestrator/` of a workspace.
 
+Three optional pieces are off by default. [`scripts/dsh-sandbox.sh`](scripts/dsh-sandbox.sh) boxes the dsh server ([`docs/SANDBOX.md`](docs/SANDBOX.md)). [`scripts/size-gate.sh`](scripts/size-gate.sh) refuses a commit that takes a task past its size limit (PLAYBOOKS §3). [`overlays/tool-policy/RECIPES.md`](overlays/tool-policy/RECIPES.md) has extra policy rules.
+
 ## Orchestrator state
 
 The server records what it observes, so that the orchestrator cannot forget to. By default it writes to `.orchestrator/` in the directory where the server started. `--state-dir` overrides this. The server creates the directory on the first tool call.
@@ -173,7 +175,7 @@ The skill covers both facts in more detail, with source citations.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-273 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+281 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious

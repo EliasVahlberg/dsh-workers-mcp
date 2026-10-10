@@ -25,7 +25,9 @@ Conventions:
   read the last line. If the total is above the size that the task states, do
   not commit more. Report the total and the reason (what grew, and what is
   left). Then wait. A number that you measured is a reason to stop. A feeling
-  that the work is nearly done is not.
+  that the work is nearly done is not. If a pre-commit hook refuses a commit
+  because of a size limit, that is the same stop. Report and wait. Do not use
+  `--no-verify`.
 - Do not put long text inside a shell command. Write files with the write
   tool. (The workspace instructions give the reason.)
 - Your permission preset is <preset>. <What this means for you, for example:

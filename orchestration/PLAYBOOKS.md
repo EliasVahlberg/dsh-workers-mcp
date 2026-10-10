@@ -89,7 +89,9 @@ next unless you object." Then go ahead, if that is within your remit.
   and 750 lines.
 - states the **expected size** of the whole piece (files, rough lines). The size
   describes the piece. It is not a cap to cut against. It lets the worker notice
-  when a small change turns into a rewrite.
+  when a small change turns into a rewrite. If a piece is at the top of the range
+  you would accept, treat that as a sign to split it at a natural seam, and do
+  not accept the size.
 - says what is out of scope, so that the worker does not "improve" its
   neighbours.
 
@@ -150,6 +152,19 @@ Mechanics:
 - Send one task in each dispatch. If you queue a second task behind the first,
   the report of the first task gets lost in the noise. Dispatch the second task
   after the verdict.
+- **Optionally, make the size stop a gate.** A stop that the lead often waives is
+  not a gate. In testing, three tasks in one session passed their stated size
+  without a stop, and each time the work was good enough that the lead raised the
+  line and merged.
+  - `scripts/size-gate.sh install` adds a pre-commit hook once for the
+    repository. `scripts/size-gate.sh set --lines N [--files M]`, run in the
+    worktree, sets the limit for one task. Twice the expected size is the usual
+    value. The hook refuses a commit that takes the task past the limit, and it
+    tells the worker to report and wait.
+  - Raising the limit is a decision. Do it with `size-gate.sh set`, and write the
+    reason in the task note. Do not raise it as a default reply to an overrun.
+  - It is a speed bump. A worker can use `git commit --no-verify` or edit the
+    limit file. The check in §6 stays.
 - **Model and reasoning effort are cost knobs.** Choose them for each task,
   while the worker is idle. Call `dsh_models session=… reasoning_effort=…`. Add
   `provider=… model=…` for a different model.
