@@ -32,7 +32,7 @@ This is alpha (0.1.0). Tool names, tool arguments and the state format can chang
 - The shape check covers 7 read-only methods. It does not cover stream frames or the two POST endpoints.
 - The quick start ran end to end only with a scripted worker. No model ran, and no one else has followed it.
 - `dsh-wake` has not run against a real client.
-- The sandbox wrapper passes its self-test. A nested `bwrap` inside it does not start (see [`docs/SANDBOX.md`](docs/SANDBOX.md)).
+- The sandbox wrapper passes its self-test. A nested `bwrap` inside it does not start (see [`docs/SANDBOX.md`](docs/SANDBOX.md)). Two tests of the wrapper skip in CI, because bubblewrap is not usable on the runner. They pass on the author's machine.
 - The tools in the "Tests" section that ran only against a fake are named there.
 
 If you find a difference between these notes and what you see, open an issue.
