@@ -64,6 +64,43 @@ TASK_STATUSES = (
 # A task in a closed state is not touched by observations any more.
 CLOSED = {"merged", "rejected", "abandoned", "done"}
 
+# --- compaction watch -------------------------------------------------------
+# dsh compacts a session itself when it reaches `thresholdRatio` of its window
+# (default 0.8). The one real failure is a compaction that does not run (an
+# orphaned lock), after which the context keeps filling. These are OUR
+# heuristics for noticing that from turn-end observations; they are not dsh
+# settings, and a deployment that changed thresholdRatio should move them.
+COMPACT_PCT = 80.0       # where dsh is expected to compact (its default)
+STALL_PCT = 85.0         # still above this at a turn end: compaction did not run
+CLIMB_TURNS = 3          # turn ends at/above COMPACT_PCT, rising, with no summary
+COMPACTION_HISTORY = 12  # turn-end observations kept per worker
+
+
+def compaction_stalled(comp: dict) -> str | None:
+    """
+    Why a worker's compaction looks stalled, or None. `comp` is the per-worker
+    record: `summaries` (count of compaction/summary events seen; count those,
+    because start/end brackets can be no-ops) and `history` (usedPct and the
+    summary count at each recent turn end).
+    """
+    history = comp.get("history") or []
+    if not history:
+        return None
+    last = history[-1]
+    if comp.get("summaries", 0) > last["summaries"]:
+        return None  # a summary landed after that turn end: it ran
+    if last["usedPct"] > STALL_PCT:
+        return (f"context was {last['usedPct']:.0f}% at the last turn end; dsh compacts "
+                f"at about {COMPACT_PCT:.0f}% (a stall threshold of {STALL_PCT:.0f}% is a heuristic)")
+    tail = history[-CLIMB_TURNS:]
+    if (len(tail) == CLIMB_TURNS
+            and all(h["usedPct"] >= COMPACT_PCT for h in tail)
+            and len({h["summaries"] for h in tail}) == 1
+            and all(a["usedPct"] < b["usedPct"] for a, b in zip(tail, tail[1:]))):
+        levels = " -> ".join(f"{h['usedPct']:.0f}%" for h in tail)
+        return f"context rose {levels} over {CLIMB_TURNS} turn ends with no compaction summary"
+    return None
+
 LOG_RESULT_CHARS = 20_000   # per logged call; the full text is in dsh anyway
 PREVIEW_CHARS = 2_000       # prompt/reply text kept in state.json
 HISTORY_PAGE_MESSAGES = 200
@@ -274,7 +311,9 @@ class State:
                 "running": bool(summary.get("running")), "missing": False,
             })
             report[session_id] = {"role": worker["notes"].get("role"),
-                                  **({"drift": drift} if drift else {})}
+                                  **({"drift": drift} if drift else {}),
+                                  **({"compactionStalled": auto["compactionStalled"]}
+                                     if auto.get("compactionStalled") else {})}
         return report
 
     # -------------------------------------------------------------- history
@@ -379,6 +418,7 @@ class State:
             "work": {"turns": stats.get("turns"), "steps": stats.get("steps")},
             "mirroredSeq": synced["lastSeq"],
         })
+        state["compaction"] = self._track_compaction(session_id, prev, state, synced["new"])
         if blocked:
             state["blocked"] = {"at": now_iso(), "pending": [
                 {k: item.get(k) for k in ("kind", "rpcId", "toolName", "reason")
@@ -393,9 +433,40 @@ class State:
             "cwd": state["cwd"], "agentPreset": summary.get("agentPreset"),
             "running": running, "goal": state["goal"],
             "lastTurnEnd": state.get("lastTurnEnd"), "missing": False,
+            "compactionStalled": state["compaction"].get("stalled"),
         })
         self._advance_task(session_id, state, blocked=bool(blocked), unblocked=unblocked)
         return state
+
+    def _track_compaction(self, session_id: str, prev: dict, state: dict,
+                          new_events: list[dict]) -> dict:
+        """
+        Count the compaction summaries seen and keep a short history of the
+        context level at each turn end, then judge it (see compaction_stalled).
+        """
+        comp = dict(prev.get("compaction") or {})
+        if "summaries" not in comp:   # first look at this session: count what is mirrored
+            path = self.session_dir(session_id) / "events.jsonl"
+            comp["summaries"] = sum(
+                1 for line in path.open(encoding="utf-8") if '"compaction/summary"' in line
+            ) if path.exists() else 0
+        else:
+            comp["summaries"] += sum(1 for e in new_events if e.get("type") == "compaction/summary")
+        end = state.get("lastTurnEnd") or {}
+        pct = (state.get("context") or {}).get("usedPct")
+        # A level read while a turn is running is not "at a turn end".
+        if end.get("seq", -1) > comp.get("lastSeq", -1) and not state.get("running") \
+                and pct is not None:
+            history = (comp.get("history") or []) + [
+                {"seq": end["seq"], "usedPct": pct, "summaries": comp["summaries"]}]
+            comp["history"] = history[-COMPACTION_HISTORY:]
+            comp["lastSeq"] = end["seq"]
+        reason = compaction_stalled(comp)
+        if reason:
+            comp["stalled"] = reason
+        else:
+            comp.pop("stalled", None)
+        return comp
 
     # ---------------------------------------------------------------- tasks
 
@@ -643,6 +714,9 @@ def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | li
     if tool == "dsh_wait" and arguments.get("digest") and isinstance(result, dict) \
             and result.get("completed") and not result.get("blocked"):
         return {**result, "digest": digest_for(state, session_id, observe=False)}
+    stalled = state.session_state(session_id).get("compaction", {}).get("stalled")
+    if tool == "dsh_status" and stalled and isinstance(result, dict):
+        return {**result, "compactionStalled": stalled}
     return None
 
 
@@ -711,6 +785,8 @@ def roster_view(state: State, include_retired: bool = False) -> dict:
             "lastTurnEnd": (auto.get("lastTurnEnd") or {}).get("kind"),
             "observedAt": auto.get("observedAt"),
             **({"missing": True} if auto.get("missing") else {}),
+            **({"compactionStalled": auto["compactionStalled"]}
+               if auto.get("compactionStalled") else {}),
             **({"retired": True} if notes.get("retired") else {}),
             "notes": notes.get("log", [])[-3:],
         })

@@ -101,6 +101,9 @@ def build(state: st.State, *, now: _dt.datetime | None = None,
             *([f"ctx {pct:.0f}%"] if pct is not None else [])]))
         if auto.get("missing"):
             needs.append(f"{_short(session_id)}: session no longer exists in dsh")
+        elif auto.get("compactionStalled"):
+            needs.append(f"{_short(session_id)}: compaction looks stalled: "
+                         f"{auto['compactionStalled']}")
         elif not auto.get("running") and not auto.get("currentTask"):
             needs.append(f"work for {_short(session_id)} ({_role(notes)}): "
                          f"idle, no task")

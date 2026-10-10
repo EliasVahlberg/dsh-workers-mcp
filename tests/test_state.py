@@ -524,3 +524,102 @@ def test_a_wait_carries_the_digest_only_when_asked_and_only_after_a_turn(dsh, st
     assert asked["completed"] is True and asked["digest"]["edited"] == ["/w/a.py"]
     blocked = json.dumps({"completed": False, "blocked": True, "sessionId": sid, "pending": []})
     assert st.after_call(state, "dsh_wait", {"session": sid, "digest": True}, blocked) is None
+
+
+# ------------------------------------------------------------ compaction watch
+
+def _hist(*points) -> dict:
+    """(usedPct, summaries) per turn end, then the summary count now."""
+    *rows, now = points
+    return {"summaries": now, "history": [{"seq": i, "usedPct": p, "summaries": s}
+                                          for i, (p, s) in enumerate(rows)]}
+
+
+@pytest.mark.parametrize("comp, stalled", [
+    (_hist(0), False),                                            # nothing observed
+    (_hist((79, 0), 0), False),                                   # healthy, near the trigger
+    (_hist((82, 0), 0), False),                                   # one turn end a little over
+    (_hist((85, 0), 0), False),                                   # the threshold is "above"
+    (_hist((90, 0), 0), True),                                    # stalled at 90%
+    (_hist((90, 0), 1), False),                                   # ...unless a summary landed since
+    (_hist((81, 0), (83, 0), (84, 0), 0), True),                  # climbing, no summaries
+    (_hist((81, 0), (83, 1), (84, 1), 1), False),                 # a summary between: it works
+    (_hist((81, 0), (83, 0), 0), False),                          # only two turn ends
+    (_hist((50, 0), (60, 0), (70, 0), 0), False),                 # a worker filling normally
+    (_hist((82, 0), (81, 0), (84, 0), 0), False),                 # not monotonic
+])
+def test_compaction_stalled_judgment(comp, stalled) -> None:
+    assert bool(st.compaction_stalled(comp)) is stalled
+
+
+def _finish(dsh, state, sid, pct, summary=False, running=False) -> None:
+    dsh.sessions[sid]["projections"]["values"]["contextPressure"]["pressureTokens"] = pct * 10
+    dsh.sessions[sid]["running"] = running
+    if summary:
+        dsh.emit(sid, "compaction/summary", {})
+    dsh.turn(sid, "work", "done")
+    state.observe(sid)
+
+
+def test_a_worker_near_the_trigger_that_compacts_is_healthy(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test")
+    for pct, summary in ((70, False), (81, False), (83, True), (82, False), (45, True), (79, False)):
+        _finish(dsh, state, sid, pct, summary)
+        assert "stalled" not in state.session_state(sid)["compaction"]
+    assert state.session_state(sid)["compaction"]["summaries"] == 2
+
+
+def test_a_stall_is_flagged_on_every_surface_and_clears_when_a_summary_lands(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test", role="implementer")
+    _finish(dsh, state, sid, 90)
+    reason = state.session_state(sid)["compaction"]["stalled"]
+    assert "90%" in reason and "heuristic" in reason
+    assert state.roster()["workers"][sid]["auto"]["compactionStalled"] == reason
+
+    shown = json.loads(text(call("dsh_roster", {})))["workers"][0]
+    assert shown["compactionStalled"] == reason
+    status = st.after_call(state, "dsh_status", {"session": sid}, json.dumps({"sessionId": sid}))
+    assert status["compactionStalled"] == reason
+    listed = st.after_call(state, "dsh_list", {}, json.dumps([{"sessionId": sid}]))
+    assert listed[0]["roster"]["compactionStalled"] == reason
+    from dsh_workers_mcp import brief
+    assert any("compaction looks stalled" in line
+               for line in brief.build(state)["needsAction"])
+
+    _finish(dsh, state, sid, 40, summary=True)      # it compacted after all
+    assert "stalled" not in state.session_state(sid)["compaction"]
+    assert st.after_call(state, "dsh_status", {"session": sid}, json.dumps({"sessionId": sid})) is None
+
+
+def test_a_climb_with_no_summaries_is_flagged_after_three_turn_ends(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test")
+    for pct in (81, 83):
+        _finish(dsh, state, sid, pct)
+        assert "stalled" not in state.session_state(sid)["compaction"]
+    _finish(dsh, state, sid, 84)
+    assert "81% -> 83% -> 84%" in state.session_state(sid)["compaction"]["stalled"]
+
+
+def test_a_level_read_mid_turn_is_not_a_turn_end(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test")
+    _finish(dsh, state, sid, 95, running=True)       # a turn end seen while running again
+    assert "history" not in state.session_state(sid)["compaction"]
+    _finish(dsh, state, sid, 95, running=False)
+    assert state.session_state(sid)["compaction"]["history"][-1]["usedPct"] == 95.0
+
+
+def test_summaries_already_mirrored_are_counted_once_then_incrementally(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    dsh.emit(sid, "compaction/summary", {})
+    dsh.emit(sid, "compaction/prune", {})
+    dsh.emit(sid, "compaction/start", {})
+    dsh.emit(sid, "compaction/summary", {})
+    state.adopt(sid, how="test")
+    state.observe(sid)
+    assert state.session_state(sid)["compaction"]["summaries"] == 2     # start/prune not counted
+    _finish(dsh, state, sid, 30, summary=True)
+    assert state.session_state(sid)["compaction"]["summaries"] == 3

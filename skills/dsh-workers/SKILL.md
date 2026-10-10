@@ -436,8 +436,14 @@ on a real 39-turn session:
 **The real risk is an orphaned lock, not quality.** A crash inside a compaction
 bracket leaves a `compaction/start` with no matching `compaction/end`, and a
 live unmatched start blocks every compaction entry point thereafter. The
-symptom is silent: `contextPressure` climbing with no new summaries. Watch
-`context.usedPct` in `dsh_status`.
+symptom is silent: `contextPressure` climbing with no new summaries. The server
+watches for it: a worker whose context is above 85% at a turn end, or rose over
+three turn ends at or above 80% with no `compaction/summary`, carries
+`compactionStalled` in `dsh_roster`, `dsh_list` and `dsh_status`, and
+`dsh_brief` lists it. Those numbers are a heuristic, not dsh settings. (In
+mirrored histories of compacting workers the log has `compaction/start`,
+`compaction/prune` and `compaction/summary` events and no `compaction/end`, so
+summaries are what is counted.)
 
 Because summaries are lossy by design, **decisions must land in the repo**, not
 only in a worker's context. Facts can be re-derived by re-reading files;

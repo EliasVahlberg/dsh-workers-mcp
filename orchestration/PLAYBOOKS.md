@@ -206,10 +206,18 @@ rejected alternatives and the reasons behind decisions, so the gate before a
 long session rolls on is that those are in the repo, `DECISIONS.md` or the
 roster notes, which is a request to the worker, not a hire.
 
-The one real failure is an orphaned compaction lock: `context.usedPct` is still
-above about 85% at the end of a turn, or keeps climbing turn after turn with no
-new summaries. Only then does the worker need a restart, which is a new
-session: hire, brief from its brief and its last report, retire the old one.
+The one real failure is an orphaned compaction lock: the compaction does not
+run and the context keeps filling. The server watches for it, so you do not
+compute it: when `context.usedPct` is above 85% at a turn end, or rose over
+three turn ends at or above 80% with no `compaction/summary` between them, the
+worker carries `compactionStalled` (the reason, in words) in `dsh_roster`,
+`dsh_list` and `dsh_status`, and `dsh_brief` lists it under `needsAction`. The
+flag clears itself when a summary lands. The 85% and the three turn ends are the
+server's heuristic, not dsh settings (dsh's own trigger is 80% by default).
+Only a flagged worker needs a restart, which is a new session: hire, brief from
+its brief and its last report, retire the old one. A worker near 80% with no
+flag is healthy. Summaries are counted, not start/end brackets, which can be
+no-ops.
 
 Hire for a new role, a disjoint area or parallel capacity. If you do retire a
 worker, write the reason and its `usedPct` in the roster note, so a wrong call
