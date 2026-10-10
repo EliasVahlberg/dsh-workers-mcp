@@ -167,6 +167,9 @@ def _tools() -> list[dict]:
                     "sessions": {"type": "array", "items": {"type": "string"},
                                  "description": "Several workers: return on the first."},
                     "timeout": {"type": "number", "default": 1800},
+                    "digest": {"type": "boolean", "default": False,
+                               "description": "when a turn ended, attach dsh_digest of that "
+                                              "turn to the result (managed workers only)"},
                 },
             },
         },
@@ -490,6 +493,34 @@ def _tools() -> list[dict]:
                 },
             },
         },
+        {
+            "name": "dsh_digest",
+            "description": (
+                "A mechanical digest of what a managed worker did in its last turn(s), "
+                "computed from the mirrored event log with no model: files edited "
+                "(from edit/write calls), shell commands by kind, which commands ran as "
+                "checks (tests, builds, lint: from the task's acceptance line, "
+                "built-in patterns, and .orchestrator/checks.txt) with ok/failed and "
+                "the last output line, whether any check ran AFTER the last edit, "
+                "errors and tool-policy refusals, and, if the task has a worktree, what "
+                "changed in git since the dispatch (commits, files, lines). Shell "
+                "parsing is a heuristic: scripts whose body decides (python -c, "
+                "heredocs) are listed as opaque, not guessed; the git section is the "
+                "reliable witness of what changed. Use it on a return before reading "
+                "history; use dsh_grep for anything it does not cover."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": SESSION_ARG,
+                    "turns": {"type": "integer", "default": 1,
+                              "description": "how many of the last turns to cover"},
+                    "task_id": {"type": "string",
+                                "description": "default: the worker's current or last task"},
+                },
+                "required": ["session"],
+            },
+        },
     ]
 
 
@@ -606,6 +637,7 @@ def check_policy(name: str, arguments: dict) -> None:
 STATE_TOOLS = {
     "dsh_roster": state_mod.cmd_roster,
     "dsh_tasks": state_mod.cmd_tasks,
+    "dsh_digest": state_mod.cmd_digest,
 }
 
 

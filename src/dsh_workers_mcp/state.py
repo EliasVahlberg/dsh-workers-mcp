@@ -43,8 +43,10 @@ except ImportError:  # pragma: no cover - non-POSIX: best effort, no locking
 
 try:
     from dsh_workers_mcp import dshctl
+    from dsh_workers_mcp import digest as digest_mod
 except ImportError:  # pragma: no cover - script mode
     import dshctl  # type: ignore[no-redef]
+    import digest as digest_mod  # type: ignore[no-redef]
 
 DEFAULT_DIRNAME = ".orchestrator"
 
@@ -479,6 +481,10 @@ class State:
 
     def record_dispatch(self, task_id: str, session_id: str, prompt: str,
                         mode: str, seq_before: int | None) -> dict:
+        # Where the worktree stands now, so the return can say what changed. Taken
+        # outside the lock: it runs git.
+        known = self.tasks()["tasks"].get(task_id) or {}
+        git_before = digest_mod.git_snapshot(known.get("worktree"))
         with self._lock("tasks"):
             data = self.tasks()
             task = data["tasks"][task_id]
@@ -488,6 +494,7 @@ class State:
                 "at": stamp, "sessionId": session_id, "mode": mode,
                 "seqBefore": seq_before, "prompt": prompt[:PREVIEW_CHARS],
                 **({"promptTruncated": True} if len(prompt) > PREVIEW_CHARS else {}),
+                **({"gitBefore": git_before} if git_before else {}),
             })
             if task["status"] == "rejected":
                 task["history"].append({"at": stamp, "status": "open", "by": "server",
@@ -631,7 +638,61 @@ def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | li
     blocked = result.get("pending") if isinstance(result, dict) and result.get("blocked") else None
     state.observe(session_id, blocked=blocked,
                   unblocked=tool in ("dsh_answer", "dsh_approve"))
+    # Opt-in: a wait that ended a turn can carry the digest, so the usual
+    # wait-then-status-then-grep sequence becomes one call.
+    if tool == "dsh_wait" and arguments.get("digest") and isinstance(result, dict) \
+            and result.get("completed") and not result.get("blocked"):
+        return {**result, "digest": digest_for(state, session_id, observe=False)}
     return None
+
+
+def digest_for(state: State, session_id: str, turns: int = 1,
+               task_id: str | None = None, observe: bool = True) -> dict:
+    """The digest of a managed worker's last `turns` turns (see digest.py)."""
+    if not state.is_managed(session_id):
+        raise dshctl.RpcError(f"{session_id} is not on the roster; adopt it first "
+                              f"(dsh_roster action=adopt)")
+    if observe:  # bring the mirror up to date; if dsh is down, use what is mirrored
+        with contextlib.suppress(dshctl.RpcError):
+            state.observe(session_id)
+    path = state.session_dir(session_id) / "events.jsonl"
+    events = [json.loads(line) for line in path.read_text().splitlines()
+              if line.strip()] if path.exists() else []
+    auto = (state.roster()["workers"].get(session_id) or {}).get("auto", {})
+    task_id = task_id or auto.get("currentTask") or auto.get("lastTask")
+    task = state.tasks()["tasks"].get(task_id) if task_id else None
+    if task_id and task is None:
+        raise dshctl.RpcError(f"no task {task_id!r}")
+    worktree = (task or {}).get("worktree")
+    patterns, bad = [], []
+    checks_file = state.root / "checks.txt"
+    if checks_file.exists():
+        for line in checks_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                try:
+                    re.compile(line)
+                    patterns.append(line)
+                except re.error:
+                    bad.append(line)
+    result = digest_mod.build(events, turns=max(int(turns), 1), worktree=worktree,
+                              acceptance=(task or {}).get("acceptance"), patterns=patterns)
+    if task:
+        result = {"task": task["id"], **result}
+        dispatches = [d for d in task.get("dispatches", []) if d.get("gitBefore")]
+        git = digest_mod.git_changes(worktree, dispatches[-1]["gitBefore"]) if dispatches else None
+        if git:
+            result["git"] = git
+    if bad:
+        result["badPatterns"] = bad
+    return result
+
+
+def cmd_digest(state: State, arguments: dict) -> dict:
+    if not arguments.get("session"):
+        raise dshctl.RpcError("dsh_digest needs a session")
+    session_id = dshctl.find_session(arguments["session"], state.base)["sessionId"]
+    return digest_for(state, session_id, arguments.get("turns", 1), arguments.get("task_id"))
 
 
 # --------------------------------------------------------- tool implementations

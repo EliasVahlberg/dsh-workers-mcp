@@ -21,6 +21,10 @@ Worktree convention: `<how to create one, where it lives, what to copy in>`
 - Build: `<command>`
 - Test: `<command>`
 - Known traps: `<…>`
+- Checks the digest should recognise: the digest (`dsh_digest`) already knows common
+  runners (`pytest`, `make test`, `gradle test`, `npm test`, `cargo test`, `go test`,
+  linters) and any backticked command in a task's acceptance line. List other
+  project check commands, one regex per line, in `.orchestrator/checks.txt`.
 
 ## What the lead may do without asking
 

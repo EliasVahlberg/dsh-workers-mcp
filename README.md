@@ -100,6 +100,7 @@ kiro-cli, reference it as `skill:///abs/path/to/dsh-workers-mcp/skills/dsh-worke
 | `dsh_cancel` | interrupt a turn, and confirm the abort landed | briefly |
 | `dsh_roster` | managed workers: server-filled facts + your role/notes | no |
 | `dsh_tasks` | task records: server-tracked dispatch/return + your verdicts | no |
+| `dsh_digest` | what a worker did in its last turn(s), computed mechanically (no model) | no |
 
 Three groups carry the weight: **delegate** (`dsh_task`/`dsh_ask`), **report**
 (`dsh_status`/`dsh_grep`), **unblock** (`dsh_pending`/`dsh_answer`). The rest
@@ -162,6 +163,19 @@ the other:
   by another worker refuses the dispatch). The server then moves it
   `dispatched → blocked → returned` as it observes the worker. `in-review`,
   `merged`, `rejected`, `abandoned` are the orchestrator's calls.
+- **The digest is mechanical.** `dsh_digest` (or `dsh_wait … digest=true`, which
+  attaches it when a turn ends) summarises the last turn(s) from the mirrored
+  event log, with no model call: files edited (from `edit`/`write` calls), shell
+  commands by kind, commands that ran as **checks** with ok/failed and their last
+  output line, whether a check ran **after the last edit**, errors and
+  tool-policy refusals, and, when the task has a worktree, what changed in git
+  since the dispatch (the server records the worktree's state at dispatch).
+  What counts as a check comes from the task's acceptance line (backticked
+  commands), built-in patterns for common runners, and one regex per line in
+  `<state dir>/checks.txt`. Shell parsing is a heuristic: `python -c` and heredoc
+  scripts show as `opaque`, and a failing run behind `| tail` is recognised from
+  its output, since the pipeline hides the exit status. The git section is the
+  reliable record of what changed, whatever command did it.
 - **Writes answer briefly; `show` has everything.** `dsh_tasks` add/update and
   `dsh_roster` adopt/note/set return a short acknowledgement (id, status, owner,
   branch, note count; for a worker, role, retired, last note), not the whole
@@ -204,7 +218,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-156 tests, no live server needed. They cover the places where being wrong is
+222 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable

@@ -41,6 +41,20 @@ class FakeDsh:
         self.events[sid].append(event)
         return event
 
+    def tool(self, sid: str, turn: int, name: str, args: dict, result: str,
+             error: bool = False) -> None:
+        """One tool call and its result, the way dsh logs them."""
+        cid = f"call_{len(self.events[sid])}"
+        self.emit(sid, "tool/call", {"turn": turn, "step": 1, "callId": cid, "name": name,
+                                     "arguments": json.dumps(args)})
+        self.emit(sid, "tool/result", {"turn": turn, "step": 1, "message": {
+            "source": {"kind": "tool", "callId": cid},
+            "content": [{"type": "tool-result", "toolCallId": cid, "isError": error,
+                         "content": [{"type": "text", "text": result}]}]}})
+
+    def end_turn(self, sid: str, turn: int, kind: str = "completed") -> None:
+        self.emit(sid, "turn/end", {"turn": turn, "reason": {"kind": kind}})
+
     def turn(self, sid: str, prompt: str, reply: str, kind: str = "completed") -> None:
         self.emit(sid, "user/message", {"content": [{"type": "text", "text": prompt}],
                                         "source": {"kind": "user"}})
@@ -439,3 +453,74 @@ def test_add_can_claim_a_named_id_and_done_closes_a_decision(dsh, state) -> None
     dsh.add("session-aaaa1111")
     result = call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": "T-005"})
     assert result["isError"] is True and "reopen" in text(result)
+
+
+# ---------------------------------------------------------------- the digest
+
+def _repo(tmp_path) -> Path:
+    import subprocess
+    repo = tmp_path / "wt"
+    repo.mkdir()
+    for args in (("init", "-q", "-b", "main"), ("config", "user.email", "t@example.com"),
+                 ("config", "user.name", "t"), ("config", "commit.gpgsign", "false")):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    (repo / "a.txt").write_text("one\n")
+    subprocess.run(["git", "-C", str(repo), "add", "a.txt"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "first"], check=True,
+                   capture_output=True)
+    return repo
+
+
+def test_digest_reads_the_mirror_and_uses_the_task(dsh, state, tmp_path) -> None:
+    sid = dsh.add("session-aaaa1111")
+    repo = _repo(tmp_path)
+    tid = _task(acceptance="`make qa` passes", worktree=str(repo))
+    call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": tid})
+    assert state.tasks()["tasks"][tid]["dispatches"][0]["gitBefore"]["dirty"] == []
+
+    dsh.tool(sid, 1, "edit", {"file_path": f"{repo}/a.txt"}, "updated")
+    dsh.tool(sid, 1, "bash", {"command": f"cd {repo} && make qa 2>&1 | tail -2"}, "all green\n")
+    dsh.end_turn(sid, 1)
+    (repo / "a.txt").write_text("one\ntwo\n")        # the edit the worker made
+    (repo / "b.txt").write_text("new\n")             # a file made by some command
+
+    digest = json.loads(text(call("dsh_digest", {"session": "aaaa1111"})))
+    assert digest["task"] == tid and digest["edited"] == ["a.txt"]
+    assert digest["checks"][0]["via"] == "acceptance" and digest["checks"][0]["ok"] is True
+    assert digest["verification"]["checkedAfterLastEdit"] is True
+    assert digest["git"]["files"] == ["a.txt", "b.txt"] and digest["git"]["insertions"] == 1
+
+
+def test_digest_needs_a_managed_session_and_a_known_task(dsh, state) -> None:
+    dsh.add("session-aaaa1111")
+    result = call("dsh_digest", {"session": "aaaa1111"})
+    assert result["isError"] is True and "adopt" in text(result)
+    state.adopt("session-aaaa1111", how="test")
+    result = call("dsh_digest", {"session": "aaaa1111", "task_id": "T-404"})
+    assert result["isError"] is True and "no task" in text(result)
+    assert "no turns" in json.loads(text(call("dsh_digest", {"session": "aaaa1111"})))["note"]
+
+
+def test_project_check_patterns_come_from_checks_txt(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test")
+    state.root.mkdir(parents=True, exist_ok=True)
+    (state.root / "checks.txt").write_text("# this project's checks\n^\\./run_scenarios\\b\n([\n")
+    dsh.tool(sid, 1, "bash", {"command": "./run_scenarios --all"}, "42 scenarios ok")
+    dsh.end_turn(sid, 1)
+    digest = json.loads(text(call("dsh_digest", {"session": "aaaa1111"})))
+    assert digest["checks"][0]["via"] == "pattern" and digest["checks"][0]["tail"] == "42 scenarios ok"
+    assert digest["badPatterns"] == ["(["]
+
+
+def test_a_wait_carries_the_digest_only_when_asked_and_only_after_a_turn(dsh, state) -> None:
+    sid = dsh.add("session-aaaa1111")
+    state.adopt(sid, how="test")
+    dsh.tool(sid, 1, "edit", {"file_path": "/w/a.py"}, "ok")
+    dsh.end_turn(sid, 1)
+    done = json.dumps({"completed": True, "sessionId": sid})
+    assert st.after_call(state, "dsh_wait", {"session": sid}, done) is None
+    asked = st.after_call(state, "dsh_wait", {"session": sid, "digest": True}, done)
+    assert asked["completed"] is True and asked["digest"]["edited"] == ["/w/a.py"]
+    blocked = json.dumps({"completed": False, "blocked": True, "sessionId": sid, "pending": []})
+    assert st.after_call(state, "dsh_wait", {"session": sid, "digest": True}, blocked) is None

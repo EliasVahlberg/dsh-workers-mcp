@@ -219,6 +219,16 @@ can be found later.
 
 A report is a claim. Before any verdict:
 
+0. **Start from the digest.** `dsh_digest session=…` (or `dsh_wait … digest=true`)
+   shows, with no model in the loop, which files the worker edited, which
+   commands ran as checks and whether they passed, **whether any check ran after
+   the last edit**, errors and tool-policy refusals, and what changed in git
+   since the dispatch. It cannot invent, so it is the cross-check on the
+   report: a report that says "tests pass" over a digest with no check after the
+   last edit is a question for the worker. Shell parsing is a heuristic, and a
+   script whose body decides (`python -c`, a heredoc) shows as `opaque`; the git
+   section is the reliable record of what changed. Use `dsh_grep` for anything the
+   digest does not cover.
 1. **Scope.** `git -C <worktree> diff --stat main...` lists only files the task
    could touch. A surprise file is a question for the worker, not a nit. Its
    last line is also the size: compare it with the task's stated size. Past

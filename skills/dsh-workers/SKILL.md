@@ -42,6 +42,7 @@ python3 tools/dshctl/dshctl.py ask <session> "question"
 | Interrupt a running turn | `dsh_cancel` | briefly, to confirm the abort |
 | Your team: roles, notes, last observed state | `dsh_roster` | no |
 | Your task records and verdicts | `dsh_tasks` | no |
+| What a worker did in its last turn(s), mechanically | `dsh_digest` | no |
 
 The three groups matter more than the individual tools: **delegate**
 (`dsh_task`/`dsh_ask`), **report** (`dsh_status`/`dsh_grep`), and **unblock**
