@@ -120,7 +120,7 @@ The supervision-level presets (`read-only`, `supervised`, `autonomous`) come fro
 
 ## The method
 
-[`orchestration/METHOD.md`](orchestration/METHOD.md) is the working method for a lead agent that drives these workers. It covers the session start, hiring, the task lifecycle, when to answer a worker and when to escalate, approvals, merge and release, and a `FRICTION.md` loop for the places where the method did not fit. `orchestration/templates/` holds the files for each project (`PROJECT.md`, `DECISIONS.md`, `FRICTION.md`, `WORKER_BRIEF.md`). Copy them into the `.orchestrator/` of a workspace.
+[`orchestration/METHOD.md`](orchestration/METHOD.md) is the working method for a lead agent that drives these workers. It covers the session start, hiring, the task lifecycle, when to answer a worker and when to escalate, approvals, merge and release, and a `FRICTION.md` loop for the places where the method did not fit. `orchestration/templates/` holds the files for each project (`PROJECT.md`, `DECISIONS.md`, `FRICTION.md`, `WORKER_BRIEF.md`). Copy them into the `.orchestrator/` of a workspace. [`orchestration/REMINDER.md`](orchestration/REMINDER.md) is a one-page copy of the rules that matter most. Load it as a standing resource of the lead, so that a compaction does not remove them.
 
 Three optional pieces are off by default. [`scripts/dsh-sandbox.sh`](scripts/dsh-sandbox.sh) boxes the dsh server ([`docs/SANDBOX.md`](docs/SANDBOX.md)). [`scripts/size-gate.sh`](scripts/size-gate.sh) refuses a commit that takes a task past its size limit (PLAYBOOKS §3). [`overlays/tool-policy/RECIPES.md`](overlays/tool-policy/RECIPES.md) has extra policy rules.
 

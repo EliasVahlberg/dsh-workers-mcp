@@ -93,6 +93,16 @@ own lines to the brief (the diff of each open task against its base, the state
 of a remote) with an executable `brief-extra` in the state directory. Its output
 appears under `project`.
 
+A running session does not read its files from disk again, and a compaction can
+drop the parts of this method that you were following. `REMINDER.md` is a short
+copy of the rules that matter most. Load it as a standing resource of the lead,
+for example a `file://` resource in kiro-cli. In one kiro-cli session, such
+resources were present in the first turn after a compaction. The documentation
+of kiro-cli does not promise this. It lists hooks for agent start, prompt
+submit, tool use and the end of a response, and none that fires after a
+compaction. For a client with no such resource, call `dsh_brief` after each
+compaction, as above.
+
 ## Hiring a worker
 
 Hire for a new role, a disjoint area or more parallel capacity. Do not hire to
