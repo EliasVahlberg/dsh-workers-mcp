@@ -21,7 +21,7 @@ try:  # POSIX advisory locks; two orchestrator sessions may share a state dir
 except ImportError:  # pragma: no cover - non-POSIX: best effort, no locking
     fcntl = None  # type: ignore[assignment]
 
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp.transport import RpcError
 from dsh_workers_mcp.transport import DshClient, HttpClient
 
 DEFAULT_DIRNAME = ".orchestrator"
@@ -142,7 +142,7 @@ class Store:
             workers = roster["workers"]
             if session_id not in workers:
                 if not create:
-                    raise dshctl.RpcError(
+                    raise RpcError(
                         f"{session_id} is not on the roster — adopt it first "
                         f"(dsh_roster action=adopt)")
                 workers[session_id] = {

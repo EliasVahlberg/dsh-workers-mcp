@@ -8,7 +8,8 @@ from __future__ import annotations
 import contextlib
 import json
 
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import sessions
+from dsh_workers_mcp.transport import RpcError
 from dsh_workers_mcp.state.core import State
 from dsh_workers_mcp.state.reports import digest_for
 from dsh_workers_mcp.state.store import now_iso
@@ -22,7 +23,7 @@ def _session_of(arguments: dict, result: object, client: DshClient) -> str | Non
     ref = arguments.get("session")
     if not ref:
         return None
-    return dshctl.find_session(ref, client)["sessionId"]
+    return sessions.find_session(ref, client)["sessionId"]
 
 
 # Tools whose call means "this session is doing work for us": adopt it.
@@ -36,7 +37,7 @@ OBSERVING = {"dsh_create", "dsh_task", "dsh_ask", "dsh_wait", "dsh_status",
 def before_call(state: State, tool: str, arguments: dict) -> None:
     """Validation that must happen before a tool acts. Raises to refuse the call."""
     if tool == "dsh_task" and arguments.get("task_id"):
-        session_id = dshctl.find_session(arguments["session"], state.client)["sessionId"]
+        session_id = sessions.find_session(arguments["session"], state.client)["sessionId"]
         state.check_dispatch(arguments["task_id"], session_id)
 
 
@@ -60,7 +61,7 @@ def _created_facts(state: State, arguments: dict, result: dict, session_id: str)
     if result.get("selectedModel"):
         auto["model"] = result["selectedModel"]
     else:
-        with contextlib.suppress(dshctl.RpcError):
+        with contextlib.suppress(RpcError):
             current = state.client.rpc("session.models", {"sessionId": session_id}).get("current") or {}
             if current:
                 auto["model"] = f"{current.get('provider')}/{current.get('model')}"

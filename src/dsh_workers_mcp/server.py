@@ -21,10 +21,10 @@ import time
 import traceback
 
 from dsh_workers_mcp import brief as brief_mod
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import cmd_sessions, cmd_work
 from dsh_workers_mcp import state as state_mod
 from dsh_workers_mcp.shape import CheckedClient
-from dsh_workers_mcp.transport import DEFAULT_BASE, DshClient, HttpClient
+from dsh_workers_mcp.transport import DEFAULT_BASE, DshClient, HttpClient, RpcError
 
 # The orchestrator state directory (see state/__init__.py). Set by main(); None disables
 # state recording entirely, which is also what a bare import / the tests get.
@@ -611,53 +611,53 @@ def _capture(func, args: Args) -> str:
 def _wait(a: dict) -> str:
     refs = ([a["session"]] if a.get("session") else []) + list(a.get("sessions") or [])
     if not refs:
-        raise dshctl.RpcError("dsh_wait needs `session` or `sessions`")
-    return _capture(dshctl.cmd_wait, Args(
+        raise RpcError("dsh_wait needs `session` or `sessions`")
+    return _capture(cmd_work.cmd_wait, Args(
         session=refs, after=None, timeout=a.get("timeout", 1800), poll=5.0))
 
 
 DISPATCH = {
-    "dsh_list": lambda a: _capture(dshctl.cmd_list, Args(
+    "dsh_list": lambda a: _capture(cmd_sessions.cmd_list, Args(
         all=a.get("include_blank", False), limit=a.get("limit", 20))),
-    "dsh_status": lambda a: _capture(dshctl.cmd_status, Args(
+    "dsh_status": lambda a: _capture(cmd_sessions.cmd_status, Args(
         session=a["session"], chars=a.get("reply_chars", 2000))),
-    "dsh_grep": lambda a: _capture(dshctl.cmd_grep, Args(
+    "dsh_grep": lambda a: _capture(cmd_sessions.cmd_grep, Args(
         session=a["session"], pattern=a["pattern"], pages=a.get("pages", 1),
         max_messages=a.get("max_messages", 200), limit=a.get("limit", 20),
         context=a.get("context", 120),
         case_sensitive=a.get("case_sensitive", False))),
-    "dsh_search": lambda a: _capture(dshctl.cmd_search, Args(
+    "dsh_search": lambda a: _capture(cmd_sessions.cmd_search, Args(
         query=a["query"], chars=4000)),
-    "dsh_task": lambda a: _capture(dshctl.cmd_task, Args(
+    "dsh_task": lambda a: _capture(cmd_work.cmd_task, Args(
         session=a["session"], prompt=a["prompt"], mode=a.get("mode", "queue"))),
-    "dsh_ask": lambda a: _capture(dshctl.cmd_ask, Args(
+    "dsh_ask": lambda a: _capture(cmd_work.cmd_ask, Args(
         session=a["session"], prompt=a["prompt"], mode=a.get("mode", "queue"),
         timeout=a.get("timeout", 300), poll=3.0,
         chars=a.get("reply_chars", 8000))),
     "dsh_wait": lambda a: _wait(a),
-    "dsh_models": lambda a: _capture(dshctl.cmd_models, Args(
+    "dsh_models": lambda a: _capture(cmd_sessions.cmd_models, Args(
         session=a["session"], reasoning_effort=a.get("reasoning_effort"),
         provider=a.get("provider"), model=a.get("model"))),
-    "dsh_create": lambda a: _capture(dshctl.cmd_create, Args(
+    "dsh_create": lambda a: _capture(cmd_sessions.cmd_create, Args(
         cwd=a.get("cwd"), preset=a.get("preset"), session_id=None,
         provider=a.get("provider"), model=a.get("model"),
         permission=a.get("permission"), reasoning_effort=a.get("reasoning_effort"))),
-    "dsh_permission": lambda a: _capture(dshctl.cmd_permission, Args(
+    "dsh_permission": lambda a: _capture(cmd_sessions.cmd_permission, Args(
         session=a["session"], preset=a.get("preset"), force=a.get("force", False))),
-    "dsh_approve": lambda a: _capture(dshctl.cmd_approve, Args(
+    "dsh_approve": lambda a: _capture(cmd_work.cmd_approve, Args(
         session=a["session"], rpc_id=a["rpc_id"], outcome=a["outcome"])),
-    "dsh_cancel": lambda a: _capture(dshctl.cmd_cancel, Args(
+    "dsh_cancel": lambda a: _capture(cmd_sessions.cmd_cancel, Args(
         session=a["session"], timeout=a.get("timeout", 30.0))),
-    "dsh_name": lambda a: _capture(dshctl.cmd_name, Args(
+    "dsh_name": lambda a: _capture(cmd_sessions.cmd_name, Args(
         session=a["session"], title=a["title"])),
-    "dsh_pending": lambda a: _capture(dshctl.cmd_pending, Args(
+    "dsh_pending": lambda a: _capture(cmd_work.cmd_pending, Args(
         session=a.get("session"), settle=1.5, timeout=8.0)),
-    "dsh_answer": lambda a: _capture(dshctl.cmd_answer, Args(
+    "dsh_answer": lambda a: _capture(cmd_work.cmd_answer, Args(
         session=a["session"], rpc_id=a["rpc_id"],
         answers=json.dumps(a["answers"]), answer=None, custom=None)),
-    "dsh_fork": lambda a: _capture(dshctl.cmd_fork, Args(
+    "dsh_fork": lambda a: _capture(cmd_sessions.cmd_fork, Args(
         session=a["session"], after_turn=a.get("after_turn"), at_seq=a.get("at_seq"))),
-    "dsh_goal": lambda a: _capture(dshctl.cmd_goal, Args(
+    "dsh_goal": lambda a: _capture(cmd_sessions.cmd_goal, Args(
         session=a["session"], action=a.get("action", "show"),
         objective=a.get("objective"), max_rounds=a.get("max_rounds"),
         start=a.get("start", False))),
@@ -685,13 +685,13 @@ def check_policy(name: str, arguments: dict) -> None:
     elif name == "dsh_create":
         wanted = arguments.get("permission")
     if wanted in FORBIDDEN_PRESETS:
-        raise dshctl.RpcError(
+        raise RpcError(
             f"preset {wanted!r} is refused by this server (started without "
             f"--allow-full-access). It is the user's call: ask them to set it.")
     if name in ("dsh_task", "dsh_ask"):
         head = (arguments.get("prompt") or "").lstrip().lower()
         if head.startswith(_KNOB_COMMANDS):
-            raise dshctl.RpcError(
+            raise RpcError(
                 "a prompt starting with a permission/sandbox/approval slash command is "
                 "refused; use dsh_permission to change a worker's preset")
 
@@ -716,7 +716,7 @@ def call_tool(name: str, arguments: dict) -> str:
     """
     if name in STATE_TOOLS:
         if STATE is None:
-            raise dshctl.RpcError(f"{name} needs a state directory; the server was "
+            raise RpcError(f"{name} needs a state directory; the server was "
                                   f"started with --no-state")
         return json.dumps(STATE_TOOLS[name](STATE, arguments), indent=2,
                           ensure_ascii=False)
@@ -776,7 +776,7 @@ def handle(request: dict) -> dict | None:
         try:
             text = call_tool(name, arguments) or "(no output)"
             ok = True
-        except dshctl.RpcError as exc:
+        except RpcError as exc:
             text, ok = f"error: {exc}", False
         except Exception:  # noqa: BLE001 - report, never kill the transport
             traceback.print_exc(file=sys.stderr)

@@ -17,7 +17,7 @@ import pytest
 
 from fakes import ScriptedClient
 
-from dsh_workers_mcp import dshctl, transport
+from dsh_workers_mcp import dshctl, pending, permissions, sessions, transport, waiting
 
 
 # --------------------------------------------------------- reasoning leakage
@@ -36,8 +36,8 @@ def test_text_of_excludes_reasoning_blocks() -> None:
         {"type": "reasoning", "text": "PRIVATE deliberation"},
         {"type": "text", "text": "the visible answer"},
     ])
-    assert dshctl.text_of(event) == "the visible answer"
-    assert "PRIVATE" not in dshctl.text_of(event)
+    assert sessions.text_of(event) == "the visible answer"
+    assert "PRIVATE" not in sessions.text_of(event)
 
 
 def test_text_of_can_opt_into_reasoning() -> None:
@@ -45,7 +45,7 @@ def test_text_of_can_opt_into_reasoning() -> None:
         {"type": "reasoning", "text": "thinking"},
         {"type": "text", "text": "answer"},
     ])
-    assert dshctl.text_of(event, include_reasoning=True) == "thinking\nanswer"
+    assert sessions.text_of(event, include_reasoning=True) == "thinking\nanswer"
 
 
 def test_reasoning_of_returns_only_reasoning() -> None:
@@ -54,7 +54,7 @@ def test_reasoning_of_returns_only_reasoning() -> None:
         {"type": "text", "text": "answer"},
         {"type": "reasoning", "text": "step two"},
     ])
-    assert dshctl.reasoning_of(event) == "step one\nstep two"
+    assert sessions.reasoning_of(event) == "step one\nstep two"
 
 
 def test_reasoning_and_answer_partition_the_content() -> None:
@@ -63,8 +63,8 @@ def test_reasoning_and_answer_partition_the_content() -> None:
         {"type": "reasoning", "text": "R"},
         {"type": "text", "text": "A"},
     ])
-    assert dshctl.text_of(event) == "A"
-    assert dshctl.reasoning_of(event) == "R"
+    assert sessions.text_of(event) == "A"
+    assert sessions.reasoning_of(event) == "R"
 
 
 def test_reasoning_only_message_yields_empty_answer() -> None:
@@ -73,13 +73,13 @@ def test_reasoning_only_message_yields_empty_answer() -> None:
     characters of reasoning. An orchestrator must not read '' as "said nothing".
     """
     event = _message([{"type": "reasoning", "text": "a" * 878}])
-    assert dshctl.text_of(event) == ""
-    assert len(dshctl.reasoning_of(event)) == 878
+    assert sessions.text_of(event) == ""
+    assert len(sessions.reasoning_of(event)) == 878
 
 
 def test_text_of_handles_plain_string_content() -> None:
     event = {"type": "user/message", "data": {"message": {"content": "hello"}}}
-    assert dshctl.text_of(event) == "hello"
+    assert sessions.text_of(event) == "hello"
 
 
 @pytest.mark.parametrize("event", [
@@ -92,13 +92,13 @@ def test_text_of_handles_plain_string_content() -> None:
 ])
 def test_extractors_tolerate_malformed_events(event: dict) -> None:
     """Never raise on a shape the server might send; return '' instead."""
-    assert dshctl.text_of(event) == ""
-    assert dshctl.reasoning_of(event) == ""
+    assert sessions.text_of(event) == ""
+    assert sessions.reasoning_of(event) == ""
 
 
 def test_text_of_skips_non_dict_blocks() -> None:
     event = _message(["not a dict", {"type": "text", "text": "kept"}])  # type: ignore[list-item]
-    assert dshctl.text_of(event) == "kept"
+    assert sessions.text_of(event) == "kept"
 
 
 # ------------------------------------------------------------ chunk filtering
@@ -109,11 +109,11 @@ def test_text_of_skips_non_dict_blocks() -> None:
 # reply and a flooded window.
 
 def test_noise_types_cover_streaming_deltas() -> None:
-    assert "assistant/chunk" in dshctl.NOISE_TYPES
+    assert "assistant/chunk" in sessions.NOISE_TYPES
 
 
 def test_reasoning_block_names_are_declared_not_inlined() -> None:
-    assert {"reasoning", "thinking"} <= dshctl.REASONING_BLOCKS
+    assert {"reasoning", "thinking"} <= sessions.REASONING_BLOCKS
 
 
 # -------------------------------------------------------------- turn-end kind
@@ -123,7 +123,7 @@ def test_reasoning_block_names_are_declared_not_inlined() -> None:
 # a finished worker from a broken one.
 
 def _patch_events(monkeypatch, events: list[dict]) -> None:
-    monkeypatch.setattr(dshctl, "fetch_events",
+    monkeypatch.setattr(sessions, "fetch_events",
                         lambda *a, **k: list(events))
 
 
@@ -133,7 +133,7 @@ def test_last_turn_end_returns_newest_kind(monkeypatch) -> None:
         {"type": "assistant/message", "seq": 11, "data": {}},
         {"type": "turn/end", "seq": 12, "data": {"reason": {"kind": "max-tokens"}}},
     ])
-    assert dshctl.last_turn_end("s", "b") == {"seq": 12, "kind": "max-tokens"}
+    assert sessions.last_turn_end("s", "b") == {"seq": 12, "kind": "max-tokens"}
 
 
 def test_last_turn_end_preserves_abort_cause(monkeypatch) -> None:
@@ -142,7 +142,7 @@ def test_last_turn_end_preserves_abort_cause(monkeypatch) -> None:
         "type": "turn/end", "seq": 7,
         "data": {"reason": {"kind": "aborted", "reason": {"kind": "hook"}}},
     }])
-    result = dshctl.last_turn_end("s", "b")
+    result = sessions.last_turn_end("s", "b")
     assert result == {"seq": 7, "kind": "aborted", "reason": {"kind": "hook"}}
 
 
@@ -152,14 +152,14 @@ def test_last_turn_end_preserves_error_payload(monkeypatch) -> None:
         "data": {"reason": {"kind": "error",
                             "error": {"message": "upstream 500", "code": "UNKNOWN"}}},
     }])
-    result = dshctl.last_turn_end("s", "b")
+    result = sessions.last_turn_end("s", "b")
     assert result["kind"] == "error"
     assert result["error"]["code"] == "UNKNOWN"
 
 
 def test_last_turn_end_none_when_absent(monkeypatch) -> None:
     _patch_events(monkeypatch, [{"type": "assistant/message", "seq": 1, "data": {}}])
-    assert dshctl.last_turn_end("s", "b") is None
+    assert sessions.last_turn_end("s", "b") is None
 
 
 def test_every_documented_turn_end_kind_survives(monkeypatch) -> None:
@@ -173,7 +173,7 @@ def test_every_documented_turn_end_kind_survives(monkeypatch) -> None:
         _patch_events(monkeypatch, [
             {"type": "turn/end", "seq": 1, "data": {"reason": {"kind": kind}}},
         ])
-        assert dshctl.last_turn_end("s", "b")["kind"] == kind
+        assert sessions.last_turn_end("s", "b")["kind"] == kind
 
 
 # ------------------------------------------------------------- answer batching
@@ -196,7 +196,7 @@ class _Args:
 
 def test_build_answers_from_pairs() -> None:
     args = _Args(answer=["q1=Yes", "q2=No"])
-    assert dshctl.build_answers(args) == [
+    assert pending.build_answers(args) == [
         {"id": "q1", "selected": ["Yes"]},
         {"id": "q2", "selected": ["No"]},
     ]
@@ -205,39 +205,39 @@ def test_build_answers_from_pairs() -> None:
 def test_build_answers_keeps_labels_with_equals_and_spaces() -> None:
     """Option labels are echoed verbatim; only the first '=' separates."""
     args = _Args(answer=["mode=a=b and c"])
-    assert dshctl.build_answers(args) == [{"id": "mode", "selected": ["a=b and c"]}]
+    assert pending.build_answers(args) == [{"id": "mode", "selected": ["a=b and c"]}]
 
 
 def test_build_answers_attaches_custom_to_last() -> None:
     args = _Args(answer=["q1=Other"], custom="free text")
-    assert dshctl.build_answers(args) == [
+    assert pending.build_answers(args) == [
         {"id": "q1", "selected": ["Other"], "custom": "free text"},
     ]
 
 
 def test_build_answers_accepts_full_json_batch() -> None:
     args = _Args(answers='[{"id":"q1","selected":["A"]},{"id":"q2","selected":["B"]}]')
-    assert len(dshctl.build_answers(args)) == 2
+    assert len(pending.build_answers(args)) == 2
 
 
 def test_build_answers_rejects_non_list_json() -> None:
     with pytest.raises(dshctl.RpcError):
-        dshctl.build_answers(_Args(answers='{"id":"q1"}'))
+        pending.build_answers(_Args(answers='{"id":"q1"}'))
 
 
 def test_build_answers_rejects_pair_without_separator() -> None:
     with pytest.raises(dshctl.RpcError):
-        dshctl.build_answers(_Args(answer=["malformed"]))
+        pending.build_answers(_Args(answer=["malformed"]))
 
 
 def test_build_answers_rejects_empty() -> None:
     with pytest.raises(dshctl.RpcError):
-        dshctl.build_answers(_Args())
+        pending.build_answers(_Args())
 
 
 def test_build_answers_rejects_custom_without_question() -> None:
     with pytest.raises(dshctl.RpcError):
-        dshctl.build_answers(_Args(custom="orphan"))
+        pending.build_answers(_Args(custom="orphan"))
 
 
 # --------------------------------------------------------- WebSocket framing
@@ -310,7 +310,7 @@ def test_ws_decodes_utf8_payloads() -> None:
 # orchestrator try to respond to, say, a projection update.
 
 def test_answerable_is_exactly_the_two_request_frames() -> None:
-    assert set(dshctl.ANSWERABLE) == {"question/requested", "approval/requested"}
+    assert set(pending.ANSWERABLE) == {"question/requested", "approval/requested"}
 
 
 @pytest.mark.parametrize("frame_type", [
@@ -319,7 +319,7 @@ def test_answerable_is_exactly_the_two_request_frames() -> None:
     "stream/error",
 ])
 def test_pure_pushes_are_not_answerable(frame_type: str) -> None:
-    assert frame_type not in dshctl.ANSWERABLE
+    assert frame_type not in pending.ANSWERABLE
 
 
 # ------------------------------------------- unreachable is not the same as empty
@@ -336,7 +336,7 @@ def test_unreachable_server_raises_rather_than_reporting_empty() -> None:
 
 def test_pending_requests_propagates_unreachable() -> None:
     with pytest.raises(dshctl.RpcError, match="cannot reach"):
-        dshctl.pending_requests(transport.HttpClient("http://127.0.0.1:9"), settle=0.4, max_seconds=1.0)
+        pending.pending_requests(transport.HttpClient("http://127.0.0.1:9"), settle=0.4, max_seconds=1.0)
 
 
 def test_https_base_is_refused_explicitly() -> None:
@@ -356,7 +356,7 @@ def test_pending_requests_keys_on_rpc_id(monkeypatch) -> None:
                     "questions": [{"id": "q1", "question": "which?"}]},
     }
     client = ScriptedClient(stream=lambda path: [frame, dict(frame)])
-    items = dshctl.pending_requests(client, 0.1, 0.1)
+    items = pending.pending_requests(client, 0.1, 0.1)
     assert len(items) == 1
     assert items[0]["rpcId"] == "abc"
     assert items[0]["questions"][0]["id"] == "q1"
@@ -370,7 +370,7 @@ def test_pending_requests_keeps_approval_detail(monkeypatch) -> None:
                     "approvalId": "ap1", "toolName": "execute_bash",
                     "reason": "writes outside the workspace"},
     }])
-    item = dshctl.pending_requests(client, 0.1, 0.1)[0]
+    item = pending.pending_requests(client, 0.1, 0.1)[0]
     assert item["kind"] == "approval/requested"
     assert item["toolName"] == "execute_bash"
 
@@ -380,7 +380,7 @@ def test_pending_requests_ignores_pure_pushes(monkeypatch) -> None:
         "type": "server-request", "rpcId": "p1", "method": "session/projection",
         "payload": {"type": "session/projection", "key": "title", "value": "x"},
     }])
-    assert dshctl.pending_requests(client, 0.1, 0.1) == []
+    assert pending.pending_requests(client, 0.1, 0.1) == []
 
 
 # ------------------------------------------------------- answer validation
@@ -399,61 +399,61 @@ MULTI = [{"id": "q1", "question": "pick many", "multiSelect": True,
 
 
 def test_valid_single_select_passes() -> None:
-    dshctl.validate_answers([{"id": "q1", "selected": ["Yes"]}], SINGLE)
+    pending.validate_answers([{"id": "q1", "selected": ["Yes"]}], SINGLE)
 
 
 def test_custom_alone_is_valid_for_single_select() -> None:
     """Free text instead of an option is allowed; alongside one is not."""
-    dshctl.validate_answers([{"id": "q1", "selected": [], "custom": "other"}], SINGLE)
+    pending.validate_answers([{"id": "q1", "selected": [], "custom": "other"}], SINGLE)
 
 
 def test_custom_with_selection_rejected_for_single_select() -> None:
     """The real mistake: both fields set on a single-select question."""
     with pytest.raises(dshctl.RpcError, match="mutually exclusive"):
-        dshctl.validate_answers(
+        pending.validate_answers(
             [{"id": "q1", "selected": ["No"], "custom": "and also this"}], SINGLE)
 
 
 def test_custom_with_selection_allowed_for_multi_select() -> None:
-    dshctl.validate_answers(
+    pending.validate_answers(
         [{"id": "q1", "selected": ["A"], "custom": "plus this"}], MULTI)
 
 
 def test_multiple_labels_rejected_for_single_select() -> None:
     with pytest.raises(dshctl.RpcError, match="at most one"):
-        dshctl.validate_answers([{"id": "q1", "selected": ["Yes", "No"]}], SINGLE)
+        pending.validate_answers([{"id": "q1", "selected": ["Yes", "No"]}], SINGLE)
 
 
 def test_multiple_labels_allowed_for_multi_select() -> None:
-    dshctl.validate_answers([{"id": "q1", "selected": ["A", "B"]}], MULTI)
+    pending.validate_answers([{"id": "q1", "selected": ["A", "B"]}], MULTI)
 
 
 def test_unknown_label_rejected() -> None:
     with pytest.raises(dshctl.RpcError, match="not offered"):
-        dshctl.validate_answers([{"id": "q1", "selected": ["Maybe"]}], SINGLE)
+        pending.validate_answers([{"id": "q1", "selected": ["Maybe"]}], SINGLE)
 
 
 def test_label_match_is_exact() -> None:
     """Labels are echoed verbatim — case and whitespace included."""
     with pytest.raises(dshctl.RpcError, match="not offered"):
-        dshctl.validate_answers([{"id": "q1", "selected": ["yes"]}], SINGLE)
+        pending.validate_answers([{"id": "q1", "selected": ["yes"]}], SINGLE)
 
 
 def test_duplicate_labels_rejected() -> None:
     with pytest.raises(dshctl.RpcError, match="duplicate"):
-        dshctl.validate_answers([{"id": "q1", "selected": ["A", "A"]}], MULTI)
+        pending.validate_answers([{"id": "q1", "selected": ["A", "A"]}], MULTI)
 
 
 def test_blank_custom_rejected() -> None:
     with pytest.raises(dshctl.RpcError, match="must not be blank"):
-        dshctl.validate_answers([{"id": "q1", "selected": [], "custom": "   "}], SINGLE)
+        pending.validate_answers([{"id": "q1", "selected": [], "custom": "   "}], SINGLE)
 
 
 def test_partial_batch_rejected() -> None:
     """Every question in the ask must be answered, in one batch."""
     two = SINGLE + [{"id": "q2", "question": "second", "options": [{"label": "Ok"}]}]
     with pytest.raises(dshctl.RpcError, match="whole batch"):
-        dshctl.validate_answers([{"id": "q1", "selected": ["Yes"]}], two)
+        pending.validate_answers([{"id": "q1", "selected": ["Yes"]}], two)
 
 
 def test_answers_are_matched_by_position_not_id() -> None:
@@ -464,12 +464,12 @@ def test_answers_are_matched_by_position_not_id() -> None:
     two = SINGLE + [{"id": "q2", "question": "second", "options": [{"label": "Ok"}]}]
     swapped = [{"id": "q2", "selected": ["Ok"]}, {"id": "q1", "selected": ["Yes"]}]
     with pytest.raises(dshctl.RpcError, match="by position"):
-        dshctl.validate_answers(swapped, two)
+        pending.validate_answers(swapped, two)
 
 
 def test_question_without_options_accepts_custom_only() -> None:
     free = [{"id": "q1", "question": "describe"}]
-    dshctl.validate_answers([{"id": "q1", "selected": [], "custom": "text"}], free)
+    pending.validate_answers([{"id": "q1", "selected": [], "custom": "text"}], free)
 
 
 # ----------------------------------------------- cancel reports outcome, not receipt
@@ -479,9 +479,9 @@ def test_question_without_options_accepts_custom_only() -> None:
 # can believe it stopped work that had already finished and committed.
 
 def test_cancel_on_an_idle_session_reports_that_nothing_was_stopped(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(dshctl, "find_session",
+    monkeypatch.setattr(sessions, "find_session",
                         lambda *a, **k: {"sessionId": "s1", "running": False})
-    monkeypatch.setattr(dshctl, "last_turn_end",
+    monkeypatch.setattr(sessions, "last_turn_end",
                         lambda *a, **k: {"seq": 10, "kind": "completed"})
     called = []
     client = ScriptedClient(rpc=lambda *a: called.append(a) or {})
@@ -494,11 +494,11 @@ def test_cancel_on_an_idle_session_reports_that_nothing_was_stopped(monkeypatch,
 
 
 def test_cancel_confirms_a_real_abort(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(dshctl, "find_session",
+    monkeypatch.setattr(sessions, "find_session",
                         lambda *a, **k: {"sessionId": "s1", "running": True})
-    monkeypatch.setattr(dshctl, "head_seq", lambda *a, **k: 100)
+    monkeypatch.setattr(waiting, "head_seq", lambda *a, **k: 100)
     client = ScriptedClient(rpc=lambda *a: {"accepted": True})
-    monkeypatch.setattr(dshctl, "wait_for_turn_end", lambda *a, **k: (
+    monkeypatch.setattr(waiting, "wait_for_turn_end", lambda *a, **k: (
         True, {"turnEnd": {"seq": 101, "kind": "aborted",
                            "reason": {"kind": "user"}}}))
 
@@ -510,11 +510,11 @@ def test_cancel_confirms_a_real_abort(monkeypatch, capsys) -> None:
 
 def test_cancel_that_loses_the_race_is_not_reported_as_cancelled(monkeypatch, capsys) -> None:
     """The turn finished on its own terms, so its work stands."""
-    monkeypatch.setattr(dshctl, "find_session",
+    monkeypatch.setattr(sessions, "find_session",
                         lambda *a, **k: {"sessionId": "s1", "running": True})
-    monkeypatch.setattr(dshctl, "head_seq", lambda *a, **k: 100)
+    monkeypatch.setattr(waiting, "head_seq", lambda *a, **k: 100)
     client = ScriptedClient(rpc=lambda *a: {"accepted": True})
-    monkeypatch.setattr(dshctl, "wait_for_turn_end", lambda *a, **k: (
+    monkeypatch.setattr(waiting, "wait_for_turn_end", lambda *a, **k: (
         True, {"turnEnd": {"seq": 101, "kind": "completed"}}))
 
     dshctl.cmd_cancel(_Args(session="s1", client=client, timeout=1.0))
@@ -528,7 +528,7 @@ def test_cancel_that_loses_the_race_is_not_reported_as_cancelled(monkeypatch, ca
 
 def test_name_surfaces_normalisation(monkeypatch, capsys) -> None:
     """A silently truncated or stripped title would misidentify a worker."""
-    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s1"})
+    monkeypatch.setattr(sessions, "find_session", lambda *a, **k: {"sessionId": "s1"})
     client = ScriptedClient(rpc=lambda *a: {"title": "implementer", "seq": 7})
     dshctl.cmd_name(_Args(session="s1", client=client,
                           title="implementer\n\nand more text"))
@@ -538,7 +538,7 @@ def test_name_surfaces_normalisation(monkeypatch, capsys) -> None:
 
 
 def test_name_is_quiet_when_accepted_verbatim(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s1"})
+    monkeypatch.setattr(sessions, "find_session", lambda *a, **k: {"sessionId": "s1"})
     client = ScriptedClient(rpc=lambda *a: {"title": "implementer", "seq": 7})
     dshctl.cmd_name(_Args(session="s1", client=client, title="implementer"))
     out = json.loads(capsys.readouterr().out)
@@ -554,16 +554,16 @@ def _approval(reason: str, call_id: str | None = "c1") -> dict:
 
 
 def test_tool_policy_reason_is_marked_trusted(monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "tool_call_arguments", lambda *a: {"command": "x"})
-    out = dshctl.describe_approval(
+    monkeypatch.setattr(pending, "tool_call_arguments", lambda *a: {"command": "x"})
+    out = pending.describe_approval(
         _approval("git push publishes work [tool-policy: preset supervised]"), "b")
     assert out["reasonAuthor"].startswith("tool-policy")
 
 
 def test_escalation_reason_is_marked_model_written(monkeypatch) -> None:
     """A sandbox escalation's justification is written by the worker's model."""
-    monkeypatch.setattr(dshctl, "tool_call_arguments", lambda *a: {"command": "x"})
-    out = dshctl.describe_approval(
+    monkeypatch.setattr(pending, "tool_call_arguments", lambda *a: {"command": "x"})
+    out = pending.describe_approval(
         _approval("escalate sandbox to danger-full-access: you asked me to"), "b")
     assert "untrusted" in out["reasonAuthor"]
 
@@ -575,75 +575,75 @@ def test_approval_is_joined_to_its_real_arguments(monkeypatch) -> None:
         {"type": "tool/call", "seq": 2, "data": {"callId": "c1",
                                                  "arguments": '{"command": "touch ~/x"}'}},
     ]
-    monkeypatch.setattr(dshctl, "fetch_events", lambda *a, **k: events)
-    assert dshctl.tool_call_arguments("s1", "c1", "b") == {"command": "touch ~/x"}
-    assert dshctl.tool_call_arguments("s1", "missing", "b") is None
+    monkeypatch.setattr(sessions, "fetch_events", lambda *a, **k: events)
+    assert pending.tool_call_arguments("s1", "c1", "b") == {"command": "touch ~/x"}
+    assert pending.tool_call_arguments("s1", "missing", "b") is None
 
 
 def test_approve_refuses_a_question(monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [
+    monkeypatch.setattr(pending, "pending_requests", lambda *a, **k: [
         {"rpcId": "r1", "kind": "question/requested", "sessionId": "s1"}])
     with pytest.raises(dshctl.RpcError, match="answer questions"):
         dshctl.cmd_approve(_Args(session="s1", rpc_id="r1", outcome="rejected", client=None))
 
 
 def test_approve_refuses_another_sessions_request(monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [_approval("x")])
-    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"sessionId": "s2"})
+    monkeypatch.setattr(pending, "pending_requests", lambda *a, **k: [_approval("x")])
+    monkeypatch.setattr(sessions, "find_session", lambda *a, **k: {"sessionId": "s2"})
     with pytest.raises(dshctl.RpcError, match="belongs to"):
         dshctl.cmd_approve(_Args(session="s2", rpc_id="r1", outcome="allowed-once", client=None))
 
 
 def test_approve_refuses_a_settled_request(monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: [])
+    monkeypatch.setattr(pending, "pending_requests", lambda *a, **k: [])
     with pytest.raises(dshctl.RpcError, match="not pending"):
         dshctl.cmd_approve(_Args(session="s1", rpc_id="gone", outcome="rejected", client=None))
 
 
 def test_permission_text_is_parsed() -> None:
-    match = dshctl._PRESET_LINE.search(
+    match = permissions._PRESET_LINE.search(
         "current preset supervised (available: read-only, supervised, autonomous)")
     assert match.group(1) == "supervised"
 
 
 def test_set_permission_rejects_unknown_preset(monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "get_permission",
+    monkeypatch.setattr(permissions, "get_permission",
                         lambda *a: {"preset": "supervised", "available": ["supervised"]})
     with pytest.raises(dshctl.RpcError, match="unknown preset"):
-        dshctl.set_permission("s1", "yolo", "b")
+        permissions.set_permission("s1", "yolo", "b")
 
 
 def test_set_permission_verifies_by_reading_back(monkeypatch) -> None:
     """The reported preset is derived from knobs; a switch that did not take must fail."""
     reads = iter([{"preset": "supervised", "available": ["supervised", "autonomous"]},
                   {"preset": "supervised", "available": ["supervised", "autonomous"]}])
-    monkeypatch.setattr(dshctl, "get_permission", lambda *a: next(reads))
-    monkeypatch.setattr(dshctl, "execute_command", lambda *a: {"kind": "success"})
+    monkeypatch.setattr(permissions, "get_permission", lambda *a: next(reads))
+    monkeypatch.setattr(permissions, "execute_command", lambda *a: {"kind": "success"})
     with pytest.raises(dshctl.RpcError, match="now reports"):
-        dshctl.set_permission("s1", "autonomous", "b")
+        permissions.set_permission("s1", "autonomous", "b")
 
 
 def test_wait_returns_early_when_blocked(monkeypatch) -> None:
     """A blocked worker reports running forever; waiting out the timeout is a deadlock."""
-    monkeypatch.setattr(dshctl.time, "sleep", lambda s: None)
-    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"running": True})
-    monkeypatch.setattr(dshctl, "fetch_events", lambda *a, **k: [])
-    monkeypatch.setattr(dshctl, "pending_requests",
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    monkeypatch.setattr(sessions, "find_session", lambda *a, **k: {"running": True})
+    monkeypatch.setattr(sessions, "fetch_events", lambda *a, **k: [])
+    monkeypatch.setattr(pending, "pending_requests",
                         lambda *a, **k: [{"sessionId": "s1", "kind": "approval/requested"}])
-    completed, info = dshctl.wait_for_turn_end("s1", "b", 0, timeout=60, poll=0,
+    completed, info = waiting.wait_for_turn_end("s1", "b", 0, timeout=60, poll=0,
                                                watch_pending=True)
     assert completed is False and info["blocked"] is True
 
 
 def test_wait_ignores_other_sessions_pending(monkeypatch) -> None:
     clock = iter(range(0, 1000, 10))
-    monkeypatch.setattr(dshctl.time, "time", lambda: next(clock))
-    monkeypatch.setattr(dshctl.time, "sleep", lambda s: None)
-    monkeypatch.setattr(dshctl, "find_session", lambda *a, **k: {"running": True})
-    monkeypatch.setattr(dshctl, "fetch_events", lambda *a, **k: [])
-    monkeypatch.setattr(dshctl, "pending_requests",
+    monkeypatch.setattr(time, "time", lambda: next(clock))
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    monkeypatch.setattr(sessions, "find_session", lambda *a, **k: {"running": True})
+    monkeypatch.setattr(sessions, "fetch_events", lambda *a, **k: [])
+    monkeypatch.setattr(pending, "pending_requests",
                         lambda *a, **k: [{"sessionId": "other", "kind": "approval/requested"}])
-    completed, info = dshctl.wait_for_turn_end("s1", "b", 0, timeout=30, poll=0,
+    completed, info = waiting.wait_for_turn_end("s1", "b", 0, timeout=30, poll=0,
                                                watch_pending=True)
     assert info.get("timedOut") is True
 
@@ -651,51 +651,51 @@ def test_wait_ignores_other_sessions_pending(monkeypatch) -> None:
 # --------------------------------------------------------- waiting on several
 
 def _fake_workers(monkeypatch, running: dict[str, bool], turn_ends: dict[str, list[int]],
-                  pending: list[dict] | None = None) -> None:
+                  blocked: list[dict] | None = None) -> None:
     """Sessions with given running flags; turn_ends[s] is each poll's newest turn/end seq."""
     polls = {s: iter(seqs) for s, seqs in turn_ends.items()}
-    monkeypatch.setattr(dshctl.time, "sleep", lambda s: None)
-    monkeypatch.setattr(dshctl, "find_session",
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    monkeypatch.setattr(sessions, "find_session",
                         lambda ref, base: {"sessionId": ref, "running": running[ref]})
-    monkeypatch.setattr(dshctl, "head_seq", lambda *a, **k: 100)
-    monkeypatch.setattr(dshctl, "last_turn_end",
+    monkeypatch.setattr(waiting, "head_seq", lambda *a, **k: 100)
+    monkeypatch.setattr(sessions, "last_turn_end",
                         lambda sid, base: {"seq": 99, "kind": "completed"})
 
     def events(sid, base, n):
         seq = next(polls.get(sid, iter(())), 50)
         return [{"type": "turn/end", "seq": seq, "data": {"reason": {"kind": "completed"}}}]
-    monkeypatch.setattr(dshctl, "fetch_events", events)
-    monkeypatch.setattr(dshctl, "pending_requests", lambda *a, **k: list(pending or []))
+    monkeypatch.setattr(sessions, "fetch_events", events)
+    monkeypatch.setattr(pending, "pending_requests", lambda *a, **k: list(blocked or []))
 
 
 def test_wait_any_returns_the_first_worker_to_finish(monkeypatch) -> None:
     """The lead waited 15 minutes on the slower of two workers, three times in one afternoon."""
     _fake_workers(monkeypatch, {"s1": True, "s2": True},
                   {"s1": [50, 50, 50, 50], "s2": [50, 101]})
-    out = dshctl.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
+    out = waiting.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
     assert out["sessionId"] == "s2" and out["completed"] is True
     assert out["stillRunning"] == ["s1"]
 
 
 def test_wait_any_returns_at_once_for_an_idle_worker(monkeypatch) -> None:
     _fake_workers(monkeypatch, {"s1": True, "s2": False}, {})
-    out = dshctl.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
+    out = waiting.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
     assert out["sessionId"] == "s2" and out["alreadyIdle"] is True
 
 
 def test_wait_any_returns_on_a_block_and_names_the_worker(monkeypatch) -> None:
     _fake_workers(monkeypatch, {"s1": True, "s2": True}, {},
-                  pending=[{"sessionId": "other"}, {"sessionId": "s1", "kind": "question/requested"}])
-    out = dshctl.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
+                  blocked=[{"sessionId": "other"}, {"sessionId": "s1", "kind": "question/requested"}])
+    out = waiting.wait_for_any(["s1", "s2"], "b", timeout=600, poll=0)
     assert out["blocked"] is True and out["sessionId"] == "s1"
     assert [p["sessionId"] for p in out["pending"]] == ["s1"]
 
 
 def test_wait_any_times_out_naming_who_is_still_running(monkeypatch) -> None:
     clock = iter(range(0, 1000, 10))
-    monkeypatch.setattr(dshctl.time, "time", lambda: next(clock))
+    monkeypatch.setattr(time, "time", lambda: next(clock))
     _fake_workers(monkeypatch, {"s1": True, "s2": True}, {})
-    out = dshctl.wait_for_any(["s1", "s2"], "b", timeout=30, poll=0)
+    out = waiting.wait_for_any(["s1", "s2"], "b", timeout=30, poll=0)
     assert out["timedOut"] is True and out["stillRunning"] == ["s1", "s2"]
 
 

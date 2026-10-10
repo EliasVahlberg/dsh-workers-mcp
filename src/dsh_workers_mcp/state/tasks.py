@@ -11,7 +11,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import sessions
+from dsh_workers_mcp.transport import RpcError
 from dsh_workers_mcp import digest as digest_mod
 from dsh_workers_mcp.state.store import Store, now_iso
 from dsh_workers_mcp.state.usage import _minutes_between, task_usage, usage_delta, usage_report
@@ -78,18 +79,18 @@ class TasksMixin(Store):
         """Add an open task. `task_id` claims a specific id (e.g. one the user
         already named), so adds made in one batch cannot swap ids by arrival order."""
         if not title or not title.strip():
-            raise dshctl.RpcError("a task needs a title")
+            raise RpcError("a task needs a title")
         if task_id is not None and not re.fullmatch(r"T-\d{3,}", task_id):
-            raise dshctl.RpcError(f"task id {task_id!r} must look like T-007")
+            raise RpcError(f"task id {task_id!r} must look like T-007")
         with self._lock("tasks"):
             data = self.tasks()
             for dep in depends_on or []:
                 if dep not in data["tasks"]:
-                    raise dshctl.RpcError(f"dependsOn: no task {dep!r}")
+                    raise RpcError(f"dependsOn: no task {dep!r}")
             if task_id is None:
                 task_id = f"T-{data['nextId']:03d}"
             elif task_id in data["tasks"]:
-                raise dshctl.RpcError(f"{task_id} already exists")
+                raise RpcError(f"{task_id} already exists")
             data["nextId"] = max(data["nextId"], int(task_id[2:]) + 1)
             stamp = now_iso()
             data["tasks"][task_id] = {
@@ -107,24 +108,24 @@ class TasksMixin(Store):
         allowed = {"title", "owner", "acceptance", "dependsOn", "branch", "worktree"}
         unknown = set(fields) - allowed
         if unknown:
-            raise dshctl.RpcError(f"cannot set {sorted(unknown)}; settable: {sorted(allowed)}")
+            raise RpcError(f"cannot set {sorted(unknown)}; settable: {sorted(allowed)}")
         if status is not None and status not in TASK_STATUSES:
-            raise dshctl.RpcError(f"status {status!r} is not one of {list(TASK_STATUSES)}")
+            raise RpcError(f"status {status!r} is not one of {list(TASK_STATUSES)}")
         with self._lock("tasks"):
             data = self.tasks()
             task = data["tasks"].get(task_id)
             if task is None:
-                raise dshctl.RpcError(f"no task {task_id!r}")
+                raise RpcError(f"no task {task_id!r}")
             for dep in fields.get("dependsOn") or []:
                 if dep not in data["tasks"] or dep == task_id:
-                    raise dshctl.RpcError(f"dependsOn: invalid task {dep!r}")
+                    raise RpcError(f"dependsOn: invalid task {dep!r}")
             stamp = now_iso()
             for key, value in fields.items():
                 if value is not None:
                     task[key] = value
             if status is not None and status != task["status"]:
                 if status in CLOSED and not (note or "").strip():
-                    raise dshctl.RpcError(
+                    raise RpcError(
                         f"closing {task_id} as {status} needs a note: the commit for merged, "
                         "the reason for rejected or abandoned, the outcome for done")
                 task["status"] = status
@@ -139,13 +140,13 @@ class TasksMixin(Store):
         """Validate BEFORE the prompt is sent, so a bad task_id never dispatches work."""
         task = self.tasks()["tasks"].get(task_id)
         if task is None:
-            raise dshctl.RpcError(f"no task {task_id!r} — create it with dsh_tasks action=add")
+            raise RpcError(f"no task {task_id!r} — create it with dsh_tasks action=add")
         # A rejection goes back to its worker (METHOD): dispatching it again IS the
         # reopen, and record_dispatch logs it. Merged and abandoned stay final.
         if task["status"] in CLOSED - {"rejected"}:
-            raise dshctl.RpcError(f"{task_id} is {task['status']}; reopen it before dispatching")
+            raise RpcError(f"{task_id} is {task['status']}; reopen it before dispatching")
         if task.get("owner") and task["owner"] != session_id:
-            raise dshctl.RpcError(
+            raise RpcError(
                 f"{task_id} is owned by {task['owner']}; reassign it with "
                 f"dsh_tasks action=update owner=... first")
 
@@ -237,7 +238,7 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
     if action == "add":
         owner = arguments.get("owner")
         if owner:
-            owner = dshctl.find_session(owner, state.client)["sessionId"]
+            owner = sessions.find_session(owner, state.client)["sessionId"]
         return task_ack(state.add_task(arguments.get("title", ""), owner=owner,
                                        acceptance=arguments.get("acceptance"),
                                        depends_on=arguments.get("depends_on"),
@@ -248,22 +249,22 @@ def cmd_tasks(state: State, arguments: dict) -> dict:
         return usage_report(state)
     task_id = arguments.get("id")
     if not task_id:
-        raise dshctl.RpcError(f"action {action!r} needs an id")
+        raise RpcError(f"action {action!r} needs an id")
     if action == "show":
         task = state.tasks()["tasks"].get(task_id)
         if task is None:
-            raise dshctl.RpcError(f"no task {task_id!r}")
+            raise RpcError(f"no task {task_id!r}")
         usage = task_usage(task)
         return {**task, "usage": usage} if usage else task
     if action == "update":
         owner = arguments.get("owner")
         if owner:
-            owner = dshctl.find_session(owner, state.client)["sessionId"]
+            owner = sessions.find_session(owner, state.client)["sessionId"]
         return task_ack(state.update_task(
             task_id, status=arguments.get("status"), note=arguments.get("note"),
             title=arguments.get("title"), owner=owner,
             acceptance=arguments.get("acceptance"),
             dependsOn=arguments.get("depends_on"), branch=arguments.get("branch"),
             worktree=arguments.get("worktree")))
-    raise dshctl.RpcError(f"unknown tasks action {action!r}")
+    raise RpcError(f"unknown tasks action {action!r}")
 

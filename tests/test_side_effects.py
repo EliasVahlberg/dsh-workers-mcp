@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from fakes import ScriptedClient
 
-from dsh_workers_mcp import dshctl, server
+from dsh_workers_mcp import dshctl, models, server, sessions
 
 SETTINGS = """\
 llm-pi-ai:
@@ -70,7 +70,7 @@ def test_pin_restores_the_global_default(dsh_home, monkeypatch, capsys) -> None:
     assert out["defaultModel"] == ("restored to deepseek-official/deepseek-flash (dsh had "
                                    "saved the pin as the default: qwen-cloud/qwen3.8-flash)")
     text = (dsh_home / "settings.yaml").read_text()
-    assert dshctl.default_model_lines(text) == {
+    assert models.default_model_lines(text) == {
         "provider": "  provider: deepseek-official", "model": "  model: deepseek-flash"}
     assert "late-edit: kept" in text and "other-key: 1" in text  # the rest is untouched
     assert "qwen" not in text
@@ -84,7 +84,7 @@ def test_pin_that_did_not_rewrite_reports_unchanged(dsh_home, monkeypatch, capsy
 
 
 def test_goal_set_needs_explicit_start(monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "find_session", lambda s, b=None: {"sessionId": "session-x"})
+    monkeypatch.setattr(sessions, "find_session", lambda s, b=None: {"sessionId": "session-x"})
     monkeypatch.setattr(server, "CLIENT", ScriptedClient())        # any call to dsh fails the test
     monkeypatch.setattr(server, "STATE", None)
     result = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
@@ -95,7 +95,7 @@ def test_goal_set_needs_explicit_start(monkeypatch) -> None:
 
 def test_goal_set_with_start_reaches_dsh(monkeypatch) -> None:
     sent = []
-    monkeypatch.setattr(dshctl, "find_session", lambda s, b=None: {"sessionId": "session-x"})
+    monkeypatch.setattr(sessions, "find_session", lambda s, b=None: {"sessionId": "session-x"})
     monkeypatch.setattr(server, "CLIENT", ScriptedClient(rpc=lambda m, p: sent.append((m, p)) or {"ok": 1}))
     monkeypatch.setattr(server, "STATE", None)
     result = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
@@ -110,7 +110,7 @@ def test_same_model_pin_names_the_reasoning_effort_dsh_added(dsh_home) -> None:
     before = (dsh_home / "settings.yaml").read_text()
     (dsh_home / "settings.yaml").write_text(
         before.replace("  model: deepseek-flash\n", "  model: deepseek-flash\n  reasoningEffort: high\n"))
-    wrote = dshctl.restore_default_model(before)
+    wrote = models.restore_default_model(before)
     assert wrote == "deepseek-official/deepseek-flash (reasoningEffort high)"
     assert (dsh_home / "settings.yaml").read_text() == before
 
@@ -120,7 +120,7 @@ def test_effort_only_change_keeps_the_model_and_the_default(dsh_home, monkeypatc
     import json
     rpc, calls = fake_rpc(dsh_home, rewrite=False)
     client = ScriptedClient(rpc=rpc)
-    monkeypatch.setattr(dshctl, "find_session",
+    monkeypatch.setattr(sessions, "find_session",
                         lambda s, b=None: {"sessionId": "session-w", "running": False})
     args = type("A", (), dict(session="w", reasoning_effort="low", provider=None, model=None,
                               client=client))()
@@ -132,7 +132,7 @@ def test_effort_only_change_keeps_the_model_and_the_default(dsh_home, monkeypatc
 
 
 def test_effort_change_refused_mid_turn(monkeypatch) -> None:
-    monkeypatch.setattr(dshctl, "find_session",
+    monkeypatch.setattr(sessions, "find_session",
                         lambda s, b=None: {"sessionId": "session-w", "running": True})
     client = ScriptedClient()
     args = type("A", (), dict(session="w", reasoning_effort="low", provider=None, model=None,

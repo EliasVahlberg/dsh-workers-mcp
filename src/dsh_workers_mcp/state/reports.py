@@ -7,7 +7,8 @@ import json
 import re
 
 from dsh_workers_mcp import digest as digest_mod
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import sessions
+from dsh_workers_mcp.transport import RpcError
 from dsh_workers_mcp.state.core import State
 
 
@@ -43,7 +44,7 @@ def _digest_task(state: State, session_id: str, task_id: str | None) -> dict | N
         return None
     task = state.tasks()["tasks"].get(task_id)
     if task is None:
-        raise dshctl.RpcError(f"no task {task_id!r}")
+        raise RpcError(f"no task {task_id!r}")
     return task
 
 
@@ -51,10 +52,10 @@ def digest_for(state: State, session_id: str, turns: int = 1,
                task_id: str | None = None, observe: bool = True) -> dict:
     """The digest of a managed worker's last `turns` turns (see digest.py)."""
     if not state.is_managed(session_id):
-        raise dshctl.RpcError(f"{session_id} is not on the roster; adopt it first "
+        raise RpcError(f"{session_id} is not on the roster; adopt it first "
                               f"(dsh_roster action=adopt)")
     if observe:  # bring the mirror up to date; if dsh is down, use what is mirrored
-        with contextlib.suppress(dshctl.RpcError):
+        with contextlib.suppress(RpcError):
             state.observe(session_id)
     task = _digest_task(state, session_id, task_id)
     worktree = (task or {}).get("worktree")
@@ -75,7 +76,7 @@ def digest_for(state: State, session_id: str, turns: int = 1,
 
 def cmd_digest(state: State, arguments: dict) -> dict:
     if not arguments.get("session"):
-        raise dshctl.RpcError("dsh_digest needs a session")
-    session_id = dshctl.find_session(arguments["session"], state.client)["sessionId"]
+        raise RpcError("dsh_digest needs a session")
+    session_id = sessions.find_session(arguments["session"], state.client)["sessionId"]
     return digest_for(state, session_id, arguments.get("turns", 1), arguments.get("task_id"))
 

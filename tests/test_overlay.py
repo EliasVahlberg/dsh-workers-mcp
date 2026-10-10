@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import dshctl, permissions
 
-OVERLAY = dshctl.OVERLAY_DIR
+OVERLAY = permissions.OVERLAY_DIR
 TEMPLATE = (OVERLAY / "policy.patch.yml").read_text()
 
 
@@ -39,7 +39,7 @@ def test_the_template_carries_nothing_personal_or_project_specific() -> None:
 
 
 def test_rendering_fills_in_an_absolute_path_that_exists() -> None:
-    rendered = dshctl.render_policy_patch()
+    rendered = permissions.render_policy_patch()
     assert "@PLUGIN_DIR@" not in rendered
     match = re.search(r"name: '([^']+)'", rendered)
     assert match and Path(match.group(1)).is_absolute() and Path(match.group(1)).is_file()
@@ -50,24 +50,24 @@ def test_a_path_with_a_quote_stays_valid_yaml(monkeypatch, tmp_path) -> None:
     odd = tmp_path / "it's here"
     odd.mkdir()
     (odd / "policy.patch.yml").write_text("name: '@PLUGIN_DIR@/index.ts'\n")
-    monkeypatch.setattr(dshctl, "OVERLAY_DIR", odd)
-    assert dshctl.render_policy_patch() == f"name: '{str(odd).replace(chr(39), chr(39) * 2)}/index.ts'\n"
+    monkeypatch.setattr(permissions, "OVERLAY_DIR", odd)
+    assert permissions.render_policy_patch() == f"name: '{str(odd).replace(chr(39), chr(39) * 2)}/index.ts'\n"
 
 
 def test_policy_patch_writes_a_file_and_will_not_overwrite_it_silently(tmp_path, capsys) -> None:
     out = tmp_path / "sub" / "tool-policy.patch.yml"
     assert dshctl.main(["policy-patch", "--out", str(out)]) == 0
-    assert out.read_text() == dshctl.render_policy_patch()
+    assert out.read_text() == permissions.render_policy_patch()
     assert "--dump-config" in capsys.readouterr().err
     assert dshctl.main(["policy-patch", "--out", str(out)]) == 1            # exists: refuse
     out.write_text("mine")
     assert dshctl.main(["policy-patch", "--out", str(out), "--force"]) == 0
-    assert out.read_text() == dshctl.render_policy_patch()
+    assert out.read_text() == permissions.render_policy_patch()
 
 
 def test_policy_patch_prints_to_stdout_by_default(capsys) -> None:
     assert dshctl.main(["policy-patch"]) == 0
-    assert capsys.readouterr().out == dshctl.render_policy_patch()
+    assert capsys.readouterr().out == permissions.render_policy_patch()
 
 
 def test_the_template_and_the_plugin_test_use_the_same_push_pattern() -> None:

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import sessions
+from dsh_workers_mcp.transport import RpcError
 from dsh_workers_mcp.state.store import Store, _read_json, _write_json, ms_to_iso, now_iso
 
 PREVIEW_CHARS = 2_000       # prompt/reply text kept in state.json
@@ -68,10 +69,10 @@ def _fold_new_events(state: dict, new_events: list[dict]) -> None:
         when = ms_to_iso(event.get("time"))
         if _user_prompt(event):
             state["lastPrompt"] = {"seq": event["seq"], "at": when,
-                                   "text": dshctl.text_of(event)[:PREVIEW_CHARS]}
+                                   "text": sessions.text_of(event)[:PREVIEW_CHARS]}
         elif etype == "assistant/message":
             state["lastReply"] = {"seq": event["seq"], "at": when,
-                                  "text": dshctl.text_of(event)[:PREVIEW_CHARS]}
+                                  "text": sessions.text_of(event)[:PREVIEW_CHARS]}
         elif etype == "turn/end":
             reason = (event.get("data") or {}).get("reason") or {}
             state["lastTurnEnd"] = {"seq": event["seq"], "at": when, **reason}
@@ -82,7 +83,7 @@ def _observed_state(prev: dict, summary: dict, new_events: list[dict], last_seq:
     """The new state.json of a session: the previous one, the new events and the dsh summary."""
     state = dict(prev)
     _fold_new_events(state, new_events)
-    values = dshctl.projections(summary)
+    values = sessions.projections(summary)
     stats = values.get("sessionStats") or {}
     pressure = values.get("contextPressure") or {}
     window = pressure.get("contextWindow") or 0
@@ -160,14 +161,14 @@ class HistoryMixin(Store):
                     complete = True
                     break
                 collected = [e for e in raw if e.get("seq", -1) > cursor
-                             and e.get("type") not in dshctl.NOISE_TYPES] + collected
+                             and e.get("type") not in sessions.NOISE_TYPES] + collected
                 lowest = min(e.get("seq", 0) for e in raw)
                 if lowest <= cursor + 1 or not value.get("hasMore") or lowest <= 0:
                     complete = True
                     break
                 before = lowest
             if not complete:
-                raise dshctl.RpcError(
+                raise RpcError(
                     f"history mirror for {session_id} did not reach its cursor within "
                     f"{HISTORY_MAX_PAGES} pages; nothing written, so no gap is created")
             collected.sort(key=lambda e: e.get("seq", -1))

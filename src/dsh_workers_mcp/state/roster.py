@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 import contextlib
 
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import sessions
+from dsh_workers_mcp.transport import RpcError
 from dsh_workers_mcp.state.store import Store, _write_json, now_iso
 
 if TYPE_CHECKING:
@@ -41,22 +42,22 @@ def cmd_roster(state: State, arguments: dict) -> dict:
     action = arguments.get("action", "show")
     if action == "show":
         if arguments.get("session"):
-            session_id = dshctl.find_session(arguments["session"], state.client)["sessionId"]
+            session_id = sessions.find_session(arguments["session"], state.client)["sessionId"]
             worker = state.roster()["workers"].get(session_id)
             if worker is None:
-                raise dshctl.RpcError(f"{session_id} is not on the roster")
+                raise RpcError(f"{session_id} is not on the roster")
             return {"worker": worker, "state": state.session_state(session_id)}
         return roster_view(state, arguments.get("include_retired", False))
     if not arguments.get("session"):
-        raise dshctl.RpcError(f"action {action!r} needs a session")
-    session_id = dshctl.find_session(arguments["session"], state.client)["sessionId"]
+        raise RpcError(f"action {action!r} needs a session")
+    session_id = sessions.find_session(arguments["session"], state.client)["sessionId"]
     if action == "adopt":
         state.adopt(session_id, how="adopt", role=arguments.get("role"))
         state.observe(session_id)
         return worker_ack(state.roster()["workers"][session_id])
     if action == "note":
         if not arguments.get("text"):
-            raise dshctl.RpcError("note needs text")
+            raise RpcError("note needs text")
         return worker_ack(state.add_note(session_id, arguments["text"]))
     if action == "set":
         result = worker_ack(state.set_judgment(session_id, role=arguments.get("role"),
@@ -66,7 +67,7 @@ def cmd_roster(state: State, arguments: dict) -> dict:
             if warning:
                 result = {**result, "warning": warning}
         return result
-    raise dshctl.RpcError(f"unknown roster action {action!r}")
+    raise RpcError(f"unknown roster action {action!r}")
 
 
 # dsh compacts a session by itself at about 80% of its window (the default
@@ -77,7 +78,7 @@ RETIRE_WARN_BELOW_PCT = 85.0
 
 
 def retire_warning(state: State, session_id: str) -> str | None:
-    with contextlib.suppress(dshctl.RpcError):
+    with contextlib.suppress(RpcError):
         state.observe(session_id)
     pct = (state.session_state(session_id).get("context") or {}).get("usedPct")
     if pct is None or pct >= RETIRE_WARN_BELOW_PCT:
@@ -116,7 +117,7 @@ class RosterMixin(Store):
         with self._lock("roster"):
             roster = self.roster()
             if session_id not in roster["workers"]:
-                raise dshctl.RpcError(f"{session_id} is not on the roster — adopt it first")
+                raise RpcError(f"{session_id} is not on the roster — adopt it first")
             roster["workers"][session_id]["notes"]["log"].append({"at": now_iso(), "text": text})
             _write_json(self.roster_path, roster)
             return roster["workers"][session_id]
@@ -129,7 +130,7 @@ class RosterMixin(Store):
         if retired is not None:
             notes["retired"] = retired
         if not notes:
-            raise dshctl.RpcError("nothing to set: pass role and/or retired")
+            raise RpcError("nothing to set: pass role and/or retired")
         return self._update_worker(session_id, notes=notes)
 
     def reconcile(self, summaries: list[dict]) -> dict[str, dict]:
@@ -152,7 +153,7 @@ class RosterMixin(Store):
                 report[session_id] = {"missing": True,
                                       "drift": ["session no longer exists in dsh"]}
                 continue
-            values = dshctl.projections(summary)
+            values = sessions.projections(summary)
             title = values.get("title")
             preset = (values.get("permissions") or {}).get("currentValue")
             auto = worker["auto"]

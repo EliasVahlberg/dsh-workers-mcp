@@ -8,7 +8,7 @@ nothing else.
 
 from __future__ import annotations
 
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import sessions
 from dsh_workers_mcp.state.history import (
     HistoryMixin,
     _observed_state,
@@ -34,7 +34,7 @@ class State(RosterMixin, HistoryMixin, TasksMixin):
         if not self.is_managed(session_id):
             return {}
         synced = self.sync_history(session_id)
-        summary = summary or dshctl.find_session(session_id, self.client)
+        summary = summary or sessions.find_session(session_id, self.client)
         prev = self.session_state(session_id)
         state = _observed_state(prev, summary, synced["new"], synced["lastSeq"], session_id)
         state["compaction"] = self._track_compaction(session_id, prev, state, synced["new"])

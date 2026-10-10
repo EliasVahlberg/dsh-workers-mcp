@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 
 import datetime as _dt
 
-from dsh_workers_mcp import dshctl
+from dsh_workers_mcp import sessions
+from dsh_workers_mcp.transport import RpcError
 
 if TYPE_CHECKING:
     from dsh_workers_mcp.state.core import State
@@ -28,7 +29,7 @@ _STAT_FIELDS = {"steps": "steps", "llmMs": "llmMs", "toolMs": "toolMs"}
 
 def usage_snapshot(summary: dict) -> dict:
     """Cumulative totals for a session now, from its projections. Omits what is absent."""
-    values = dshctl.projections(summary)
+    values = sessions.projections(summary)
     out: dict = {}
     for source, fields in ((values.get("tokenUsage") or {}, _TOKEN_FIELDS),
                            (values.get("sessionStats") or {}, _STAT_FIELDS)):
@@ -70,16 +71,16 @@ def _minutes_between(start: str | None, end: str | None) -> float | None:
 def dispatch_facts(state: State, session_id: str) -> dict:
     """The worker's model, effort, permission and usage totals at the moment of dispatch."""
     facts: dict = {}
-    with contextlib.suppress(dshctl.RpcError):
+    with contextlib.suppress(RpcError):
         current = state.client.rpc("session.models", {"sessionId": session_id}).get("current") or {}
         if current.get("model"):
             facts["model"] = (f"{current['provider']}/{current['model']}"
                               if current.get("provider") else current["model"])
         if current.get("reasoningEffort"):
             facts["effort"] = current["reasoningEffort"]
-    with contextlib.suppress(dshctl.RpcError):
-        summary = dshctl.find_session(session_id, state.client)
-        permission = (dshctl.projections(summary).get("permissions") or {}).get("currentValue")
+    with contextlib.suppress(RpcError):
+        summary = sessions.find_session(session_id, state.client)
+        permission = (sessions.projections(summary).get("permissions") or {}).get("currentValue")
         if permission:
             facts["permission"] = permission
         snapshot = usage_snapshot(summary)

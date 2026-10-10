@@ -18,8 +18,10 @@ import datetime as _dt
 import os
 import subprocess
 
-from dsh_workers_mcp import digest, dshctl
+from dsh_workers_mcp import digest
+from dsh_workers_mcp import pending as pending_mod
 from dsh_workers_mcp import state as st
+from dsh_workers_mcp.transport import RpcError
 
 HOOK_NAME = "brief-extra"       # optional executable in the state dir
 HOOK_TIMEOUT = 10
@@ -210,13 +212,13 @@ def _refresh(state: st.State) -> tuple[str, list[dict] | None, list[str]]:
             drift += [f"{_short(session_id)}: {d}" for d in report.get("drift", [])]
         for session_id, worker in state.roster()["workers"].items():
             if session_id in by_id and not worker["notes"].get("retired"):
-                with contextlib.suppress(dshctl.RpcError):
+                with contextlib.suppress(RpcError):
                     state.observe(session_id, by_id[session_id])
         pending = None
-        with contextlib.suppress(dshctl.RpcError, OSError):
-            pending = dshctl.pending_requests(state.client, 1.5, 8.0)
+        with contextlib.suppress(RpcError, OSError):
+            pending = pending_mod.pending_requests(state.client, 1.5, 8.0)
         return "up", pending, drift
-    except (dshctl.RpcError, OSError):
+    except (RpcError, OSError):
         return "unreachable: showing the last observed state", None, drift
 
 
