@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 
 from dsh_workers_mcp import dshctl, server, state as st
+from dsh_workers_mcp.state import history, hooks, reports, roster, store
+from dsh_workers_mcp.state import tasks as tasks_mod
 
 
 def call(name: str, arguments: dict) -> dict:
@@ -66,7 +68,7 @@ def test_history_mirror_is_incremental_and_drops_chunks(dsh, state, monkeypatch)
     sid = dsh.add("session-aaaa1111")
     state.adopt(sid, how="test")
     dsh.turn(sid, "p1", "r1")
-    monkeypatch.setattr(st, "HISTORY_PAGE_MESSAGES", 2)  # force a multi-page walk
+    monkeypatch.setattr(history, "HISTORY_PAGE_MESSAGES", 2)  # force a multi-page walk
     first = state.sync_history(sid)
     dsh.turn(sid, "p2", "r2")
     second = state.sync_history(sid)
@@ -86,8 +88,8 @@ def test_mirror_that_cannot_reach_its_cursor_writes_nothing(dsh, state, monkeypa
     state.adopt(sid, how="test")
     for i in range(5):
         dsh.turn(sid, f"p{i}", f"r{i}")
-    monkeypatch.setattr(st, "HISTORY_PAGE_MESSAGES", 2)
-    monkeypatch.setattr(st, "HISTORY_MAX_PAGES", 2)
+    monkeypatch.setattr(history, "HISTORY_PAGE_MESSAGES", 2)
+    monkeypatch.setattr(history, "HISTORY_MAX_PAGES", 2)
     with pytest.raises(dshctl.RpcError, match="did not reach its cursor"):
         state.sync_history(sid)
     assert not (state.session_dir(sid) / "events.jsonl").exists()
@@ -556,7 +558,8 @@ def test_a_dispatch_records_the_worker_and_the_turn_end_records_what_it_used(
         dsh, state, monkeypatch) -> None:
     sid = dsh.add("session-aaaa1111", preset="supervised")
     tid = _task()
-    monkeypatch.setattr(st, "now_iso", lambda: st.ms_to_iso(dsh.clock))
+    for module in (store, history, roster, tasks_mod, hooks):      # every module that stamps a time
+        monkeypatch.setattr(module, "now_iso", lambda: st.ms_to_iso(dsh.clock))
     _usage(dsh, sid, uncached=1000, cache=9000, output=500, steps=10, llm_ms=60_000, pressure=100)
     call("dsh_task", {"session": "aaaa1111", "prompt": "go", "task_id": tid})
     dispatch = state.tasks()["tasks"][tid]["dispatches"][0]
@@ -646,7 +649,7 @@ def _event(seq: int, etype: str, **data) -> dict:
 
 def test_fold_new_events_keeps_the_latest_prompt_reply_and_turn_end() -> None:
     state: dict = {}
-    st._fold_new_events(state, [
+    history._fold_new_events(state, [
         _event(1, "user/message", source={"kind": "plugin"}, content=[{"type": "text", "text": "ctx"}]),
         _event(2, "user/message", source={"kind": "user"}, content=[{"type": "text", "text": "do it"}]),
         _event(3, "assistant/message", message={"content": [{"type": "text", "text": "done"}]}),
@@ -663,35 +666,35 @@ def test_observed_state_reads_the_summary_and_keeps_what_was_there() -> None:
         "sessionStats": {"turns": 4, "steps": 9},
         "contextPressure": {"contextWindow": 1000, "pressureTokens": 250},
         "goal": {"goal": {"objective": "o", "status": "active"}}}}}
-    state = st._observed_state({"keep": 1}, summary, [], 17, "session-aaaa1111")
+    state = history._observed_state({"keep": 1}, summary, [], 17, "session-aaaa1111")
     assert state["keep"] == 1 and state["running"] is True and state["mirroredSeq"] == 17
     assert state["context"] == {"window": 1000, "used": 250, "usedPct": 25.0}
     assert state["work"] == {"turns": 4, "steps": 9}
     assert state["goal"] == {"objective": "o", "status": "active"}
-    empty = st._observed_state({}, {}, [], -1, "s")
+    empty = history._observed_state({}, {}, [], -1, "s")
     assert empty["context"]["usedPct"] is None and empty["goal"] is None and empty["running"] is False
 
 
 def test_update_blocked_sets_clears_and_keeps() -> None:
     state = {"running": True, "lastTurnEnd": {"seq": 5}}
-    st._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, [{"kind": "approval/requested", "rpcId": "r1",
+    history._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, [{"kind": "approval/requested", "rpcId": "r1",
                                                             "toolName": "bash", "extra": 1}], False)
     assert state["blocked"]["pending"] == [{"kind": "approval/requested", "rpcId": "r1", "toolName": "bash"}]
-    st._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, None, False)         # a plain poll keeps it
+    history._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, None, False)         # a plain poll keeps it
     assert "blocked" in state
-    st._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, None, True)          # an answer clears it
+    history._update_blocked(state, {"lastTurnEnd": {"seq": 5}}, None, True)          # an answer clears it
     assert "blocked" not in state
     state["blocked"] = {}
-    st._update_blocked({**state, "lastTurnEnd": {"seq": 9}}, {"lastTurnEnd": {"seq": 5}}, None, False)
+    history._update_blocked({**state, "lastTurnEnd": {"seq": 9}}, {"lastTurnEnd": {"seq": 5}}, None, False)
     state["running"] = False
-    st._update_blocked(state, {}, None, False)                          # an idle worker is not blocked
+    history._update_blocked(state, {}, None, False)                          # an idle worker is not blocked
     assert "blocked" not in state
 
 
 def test_worker_auto_copies_the_fields_the_roster_shows() -> None:
     state = {"title": "t", "permission": "p", "cwd": "/w", "running": False, "goal": None,
              "lastTurnEnd": {"seq": 1}, "compaction": {"stalled": "x"}}
-    auto = st._worker_auto(state, {"agentPreset": "standard"})
+    auto = history._worker_auto(state, {"agentPreset": "standard"})
     assert auto == {"title": "t", "permission": "p", "cwd": "/w", "agentPreset": "standard",
                     "running": False, "goal": None, "lastTurnEnd": {"seq": 1}, "missing": False,
                     "compactionStalled": "x"}
@@ -706,67 +709,67 @@ def test_worker_auto_copies_the_fields_the_roster_shows() -> None:
     ("blocked", {"seqBefore": 10}, {"seq": 5}, False, False, None),
 ])
 def test_next_status_follows_the_facts(status, last, end, blocked, unblocked, expected) -> None:
-    assert st._next_status({"status": status}, last, end, blocked, unblocked) == expected
+    assert tasks_mod._next_status({"status": status}, last, end, blocked, unblocked) == expected
 
 
 def test_record_return_stores_the_turn_end_and_the_usage() -> None:
     last = {"at": "2026-10-10T10:00:00+00:00", "usageBefore": {"outputTokens": 1, "output": 10}}
     end = {"seq": 7, "at": "2026-10-10T10:30:00+00:00", "kind": "completed"}
-    st._record_return(last, end, {"usage": {"output": 110}})
+    tasks_mod._record_return(last, end, {"usage": {"output": 110}})
     assert last["turnEnd"] == end and last["usage"] == {"output": 100, "wallMinutes": 30.0}
     bare: dict = {}
-    st._record_return(bare, {"seq": 1}, {})
+    tasks_mod._record_return(bare, {"seq": 1}, {})
     assert bare == {"turnEnd": {"seq": 1}}
 
 
 def test_record_transition_updates_status_history_and_time() -> None:
     task = {"status": "dispatched", "history": []}
-    st._record_transition(task, "returned", {"kind": "completed"})
+    tasks_mod._record_transition(task, "returned", {"kind": "completed"})
     assert task["status"] == "returned" and task["updated"] == task["history"][0]["at"]
     assert task["history"][0]["turnEnd"] == "completed" and task["history"][0]["by"] == "server"
-    st._record_transition(task, "blocked", {"kind": "completed"})
+    tasks_mod._record_transition(task, "blocked", {"kind": "completed"})
     assert "turnEnd" not in task["history"][1]
 
 
 def test_check_patterns_skips_comments_and_reports_bad_regexes(state) -> None:
-    assert st._check_patterns(state) == ([], [])
+    assert reports._check_patterns(state) == ([], [])
     state.root.mkdir(parents=True, exist_ok=True)
     (state.root / "checks.txt").write_text("# a comment\n\n^make verify\n(unclosed\n  gradle test  \n")
-    assert st._check_patterns(state) == (["^make verify", "gradle test"], ["(unclosed"])
+    assert reports._check_patterns(state) == (["^make verify", "gradle test"], ["(unclosed"])
 
 
 def test_digest_task_names_the_task_or_falls_back_to_the_workers(dsh, state) -> None:
     sid = dsh.add("session-aaaa1111")
     state.adopt(sid, how="test")
-    assert st._digest_task(state, sid, None) is None
+    assert reports._digest_task(state, sid, None) is None
     tid = _task()
     state._update_worker(sid, auto={"lastTask": tid})
-    assert st._digest_task(state, sid, None)["id"] == tid
-    assert st._digest_task(state, sid, tid)["id"] == tid
+    assert reports._digest_task(state, sid, None)["id"] == tid
+    assert reports._digest_task(state, sid, tid)["id"] == tid
     with pytest.raises(dshctl.RpcError, match="no task 'T-404'"):
-        st._digest_task(state, sid, "T-404")
+        reports._digest_task(state, sid, "T-404")
 
 
 def test_mirrored_events_reads_the_jsonl_file(dsh, state) -> None:
     sid = dsh.add("session-aaaa1111")
     state.adopt(sid, how="test")
-    assert st._mirrored_events(state, sid) == []
+    assert reports._mirrored_events(state, sid) == []
     dsh.turn(sid, "go", "done")
     state.observe(sid)
-    assert [e["type"] for e in st._mirrored_events(state, sid)][-1] == "turn/end"
+    assert [e["type"] for e in reports._mirrored_events(state, sid)][-1] == "turn/end"
 
 
 def test_auto_facts_per_tool(dsh, state) -> None:
     sid = dsh.add("session-aaaa1111")
-    created = st._auto_facts(state, "dsh_create", {"permission": "autonomous"}, {"sessionId": sid}, sid)
+    created = hooks._auto_facts(state, "dsh_create", {"permission": "autonomous"}, {"sessionId": sid}, sid)
     assert created["permissionSet"] == "autonomous" and created["model"] == "deepseek-official/deepseek-flash"
     assert "createdAt" in created
-    assert st._auto_facts(state, "dsh_create", {}, {"selectedModel": "a/b"}, sid)["model"] == "a/b"
-    assert st._auto_facts(state, "dsh_name", {}, {"title": "w"}, sid) == {"name": "w"}
-    assert st._auto_facts(state, "dsh_permission", {"preset": "read-only"}, {}, sid) == {
+    assert hooks._auto_facts(state, "dsh_create", {}, {"selectedModel": "a/b"}, sid)["model"] == "a/b"
+    assert hooks._auto_facts(state, "dsh_name", {}, {"title": "w"}, sid) == {"name": "w"}
+    assert hooks._auto_facts(state, "dsh_permission", {"preset": "read-only"}, {}, sid) == {
         "permissionSet": "read-only"}
-    assert st._auto_facts(state, "dsh_permission", {}, {}, sid) == {}
-    assert st._auto_facts(state, "dsh_status", {}, {}, sid) == {}
+    assert hooks._auto_facts(state, "dsh_permission", {}, {}, sid) == {}
+    assert hooks._auto_facts(state, "dsh_status", {}, {}, sid) == {}
 
 
 def test_enriched_result_adds_the_digest_to_a_finished_wait_and_a_stall_to_a_status(dsh, state) -> None:
@@ -775,14 +778,14 @@ def test_enriched_result_adds_the_digest_to_a_finished_wait_and_a_stall_to_a_sta
     dsh.turn(sid, "go", "done")
     state.observe(sid)
     done = {"completed": True}
-    assert "digest" in st._enriched_result(state, "dsh_wait", {"digest": True}, sid, done)
-    assert st._enriched_result(state, "dsh_wait", {}, sid, done) is None                  # not asked for
+    assert "digest" in hooks._enriched_result(state, "dsh_wait", {"digest": True}, sid, done)
+    assert hooks._enriched_result(state, "dsh_wait", {}, sid, done) is None                  # not asked for
     blocked_wait = {"completed": True, "blocked": True}
-    assert st._enriched_result(state, "dsh_wait", {"digest": True}, sid, blocked_wait) is None
-    assert st._enriched_result(state, "dsh_status", {}, sid, {"id": 1}) is None           # no stall
+    assert hooks._enriched_result(state, "dsh_wait", {"digest": True}, sid, blocked_wait) is None
+    assert hooks._enriched_result(state, "dsh_status", {}, sid, {"id": 1}) is None           # no stall
     path = state.session_dir(sid) / "state.json"
     stalled = {**json.loads(path.read_text()), "compaction": {"stalled": "stuck"}}
     path.write_text(json.dumps(stalled))
-    status = st._enriched_result(state, "dsh_status", {}, sid, {"id": 1})
+    status = hooks._enriched_result(state, "dsh_status", {}, sid, {"id": 1})
     assert status == {"id": 1, "compactionStalled": "stuck"}
-    assert st._enriched_result(state, "dsh_status", {}, sid, "text") is None
+    assert hooks._enriched_result(state, "dsh_status", {}, sid, "text") is None

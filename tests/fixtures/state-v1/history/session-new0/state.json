@@ -1,0 +1,49 @@
+{
+  "sessionId": "session-new0",
+  "observedAt": "2026-10-10T12:19:06+02:00",
+  "running": false,
+  "title": "t",
+  "permission": "supervised",
+  "cwd": "/tmp/old-state/demo-w1",
+  "goal": null,
+  "context": {
+    "window": 1000,
+    "used": 100,
+    "usedPct": 10.0
+  },
+  "work": {
+    "turns": 0,
+    "steps": 0
+  },
+  "mirroredSeq": 4,
+  "compaction": {
+    "summaries": 0,
+    "history": [
+      {
+        "seq": 4,
+        "usedPct": 10.0,
+        "summaries": 0
+      }
+    ],
+    "lastSeq": 4
+  },
+  "usage": {
+    "steps": 0,
+    "contextPct": 10.0
+  },
+  "lastPrompt": {
+    "seq": 0,
+    "at": "2026-09-21T16:13:21+02:00",
+    "text": "Create hello.txt and commit it."
+  },
+  "lastReply": {
+    "seq": 3,
+    "at": "2026-09-21T16:13:24+02:00",
+    "text": "Added hello.txt and committed it."
+  },
+  "lastTurnEnd": {
+    "seq": 4,
+    "at": "2026-09-21T16:13:25+02:00",
+    "kind": "completed"
+  }
+}

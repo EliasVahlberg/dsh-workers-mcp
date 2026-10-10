@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "workers": {
+    "session-new0": {
+      "auto": {
+        "sessionId": "session-new0",
+        "short": "new0",
+        "addedAt": "2026-10-10T12:19:05+02:00",
+        "addedBy": "dsh_create",
+        "observedAt": "2026-10-10T12:19:06+02:00",
+        "createdAt": "2026-10-10T12:19:05+02:00",
+        "model": "deepseek-official/deepseek-flash",
+        "title": "t",
+        "permission": "supervised",
+        "cwd": "/tmp/old-state/demo-w1",
+        "agentPreset": "standard",
+        "running": false,
+        "goal": null,
+        "lastTurnEnd": {
+          "seq": 4,
+          "at": "2026-09-21T16:13:25+02:00",
+          "kind": "completed"
+        },
+        "missing": false,
+        "compactionStalled": null,
+        "currentTask": null,
+        "lastTask": "T-001"
+      },
+      "notes": {
+        "role": "implementer: hello file",
+        "retired": false,
+        "log": []
+      }
+    }
+  }
+}

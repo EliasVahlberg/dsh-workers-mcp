@@ -26,7 +26,7 @@ from dsh_workers_mcp import state as state_mod
 from dsh_workers_mcp.shape import CheckedClient
 from dsh_workers_mcp.transport import DEFAULT_BASE, DshClient, HttpClient
 
-# The orchestrator state directory (see state.py). Set by main(); None disables
+# The orchestrator state directory (see state/__init__.py). Set by main(); None disables
 # state recording entirely, which is also what a bare import / the tests get.
 STATE: state_mod.State | None = None
 # The client that the dshctl commands behind the tools use. Tests replace it.

@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "nextId": 2,
+  "tasks": {
+    "T-001": {
+      "id": "T-001",
+      "title": "Add hello.txt",
+      "status": "in-review",
+      "owner": "session-new0",
+      "acceptance": "hello.txt exists",
+      "dependsOn": [],
+      "branch": "w1",
+      "worktree": "/tmp/old-state/demo-w1",
+      "created": "2026-10-10T12:19:05+02:00",
+      "updated": "2026-10-10T12:19:06+02:00",
+      "notes": [
+        {
+          "at": "2026-10-10T12:19:06+02:00",
+          "text": "checking"
+        }
+      ],
+      "dispatches": [
+        {
+          "at": "2026-10-10T12:19:05+02:00",
+          "sessionId": "session-new0",
+          "mode": "queue",
+          "seqBefore": -1,
+          "prompt": "Create hello.txt and commit it.",
+          "gitBefore": {
+            "head": "a4caf299362f242e3c96957e687c3456a55c1ca1",
+            "dirty": [],
+            "untracked": []
+          },
+          "model": "deepseek-official/deepseek-flash",
+          "effort": "high",
+          "permission": "supervised",
+          "usageBefore": {
+            "steps": 0,
+            "contextPct": 10.0
+          },
+          "turnEnd": {
+            "seq": 4,
+            "at": "2026-09-21T16:13:25+02:00",
+            "kind": "completed"
+          },
+          "usage": {
+            "steps": 0,
+            "contextPct": [
+              10.0,
+              10.0
+            ],
+            "wallMinutes": 0.0
+          }
+        }
+      ],
+      "history": [
+        {
+          "at": "2026-10-10T12:19:05+02:00",
+          "status": "open",
+          "by": "orchestrator"
+        },
+        {
+          "at": "2026-10-10T12:19:05+02:00",
+          "status": "dispatched",
+          "by": "server"
+        },
+        {
+          "at": "2026-10-10T12:19:06+02:00",
+          "status": "returned",
+          "by": "server",
+          "turnEnd": "completed"
+        },
+        {
+          "at": "2026-10-10T12:19:06+02:00",
+          "status": "in-review",
+          "by": "orchestrator"
+        }
+      ]
+    }
+  }
+}
