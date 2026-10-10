@@ -23,6 +23,7 @@ This is alpha (0.1.0). Tool names, tool arguments and the state format can chang
 **What ran**
 - The tests run against a stand-in dsh, in CI on Python 3.10 to 3.13. CI also runs ruff, mypy, the complexity ratchet and the import-layer check.
 - Read-only commands (`dshctl list`, `dshctl pending`, `host.describe`, the `dsh-wake` dry run and `dsh_list` over the MCP server) ran against a live dsh, package version `0.1.1-rc.2`, commit `b150a55`.
+- The release v0.1.0 installs from its tag and from its wheel in a clean environment, and the server answers the MCP handshake. Nothing more was run from the installed copy.
 - The original tools ran against a live dsh in a long project. The author did that testing. [`docs/DSH_API.md`](docs/DSH_API.md) says which.
 
 **What did not run**
@@ -38,6 +39,24 @@ If you find a difference between these notes and what you see, open an issue.
 
 You need Python 3.10 or later and a running `dsh web` server (default `http://127.0.0.1:3080`).
 
+**From a release.** The latest is [v0.1.0](https://github.com/EliasVahlberg/dsh-workers-mcp/releases/tag/v0.1.0). With [uv](https://docs.astral.sh/uv/), the MCP client can start the server straight from the tag. Put this in its configuration:
+
+```json
+{
+  "mcpServers": {
+    "dsh-workers": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/EliasVahlberg/dsh-workers-mcp@v0.1.0", "dsh-workers-mcp"],
+      "timeout": 600000
+    }
+  }
+}
+```
+
+Or download the wheel from the release page and run `uv tool install dsh_workers_mcp-0.1.0-py3-none-any.whl`. That puts `dsh-workers-mcp`, `dshctl` and `dsh-wake` on your path. We ran both ways in a clean environment, and the server answered the MCP handshake. The wheel holds the server and the `tool-policy` overlay only. The skill, the method and the templates are in the repository, so read them at the tag.
+
+**From a clone.** Use this for development, or to read the method next to the code:
+
 ```bash
 uv sync                 # or: pipx install -e .
 ```
@@ -52,6 +71,7 @@ There are three entry points:
 
 ## Wiring it into an agent
 
+With a release, use the `uvx` configuration from [Install](#install). With a clone, use this one:
 ```json
 {
   "mcpServers": {

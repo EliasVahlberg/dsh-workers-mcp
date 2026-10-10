@@ -45,10 +45,12 @@ Do not edit `assets/banner.svg`, `assets/social.svg` or `assets/social.png` by h
 
 ## Release
 
-1. Set `__version__` in `src/dsh_workers_mcp/__init__.py`. It is the only place.
+1. Set `__version__` in `src/dsh_workers_mcp/__init__.py`. It is the only place in the code.
 2. In `CHANGELOG.md`, add a section for the version with the date in the heading.
-3. Commit, and wait for CI to pass.
-4. Make a signed tag and push it: `git tag -s vX.Y.Z -m "vX.Y.Z"`, then
+3. In the "Install" section of `README.md`, change the tag and the wheel name to the
+   new version. `tests/test_release.py` fails until you do.
+4. Commit, and wait for CI to pass.
+5. Make a signed tag and push it: `git tag -s vX.Y.Z -m "vX.Y.Z"`, then
    `git push origin vX.Y.Z`.
 
 The `release` workflow runs the tests, checks that the tag is `v` plus the version and

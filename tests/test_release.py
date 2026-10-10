@@ -40,6 +40,14 @@ def test_the_version_has_one_source() -> None:
     assert server.SERVER_INFO["version"] == __version__ == notes.package_version()
 
 
+def test_the_readme_install_section_names_the_current_release() -> None:
+    """A version bump that forgets the README would send users to the old tag."""
+    readme = (ROOT / "README.md").read_text()
+    assert f"dsh-workers-mcp@v{__version__}" in readme
+    assert f"dsh_workers_mcp-{__version__}-py3-none-any.whl" in readme
+    assert f"releases/tag/v{__version__}" in readme
+
+
 def test_the_changelog_has_a_section_for_the_current_version() -> None:
     found = notes.section((ROOT / "CHANGELOG.md").read_text(), __version__)
     assert found is not None and found[1], "add a section to CHANGELOG.md"
