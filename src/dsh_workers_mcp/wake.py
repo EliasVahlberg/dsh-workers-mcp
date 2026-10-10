@@ -37,7 +37,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 try:
     from dsh_workers_mcp import brief, state as st
@@ -88,7 +88,8 @@ def log(path: Path, action: str, reason: str, **extra) -> None:
 
 
 def render(template: str, prompt: str, state_dir: Path) -> str:
-    return template.replace("{prompt}", shlex.quote(prompt)).replace("{state_dir}", shlex.quote(str(state_dir)))
+    quoted_dir = shlex.quote(str(state_dir))
+    return template.replace("{prompt}", shlex.quote(prompt)).replace("{state_dir}", quoted_dir)
 
 
 def run(args: argparse.Namespace, *, get_needs: Callable[[], list[str] | None],
@@ -127,10 +128,13 @@ def run(args: argparse.Namespace, *, get_needs: Callable[[], list[str] | None],
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="dsh-wake", description=__doc__.split("\n\n")[0])
     p.add_argument("--cmd", required=True,
-                   help="command template that starts the lead's client; {prompt} and {state_dir} are filled in")
+                   help="command template that starts the lead's client; "
+                        "{prompt} and {state_dir} are filled in")
     p.add_argument("--prompt", default=DEFAULT_PROMPT, help="the resume prompt")
-    p.add_argument("--state-dir", default=None, help="orchestrator state directory (default: ./.orchestrator)")
-    p.add_argument("--milestone", help="a file whose first line starts with DONE or BLOCKED to stop the driver")
+    p.add_argument("--state-dir", default=None,
+                   help="orchestrator state directory (default: ./.orchestrator)")
+    p.add_argument("--milestone",
+                   help="a file whose first line starts with DONE or BLOCKED to stop the driver")
     p.add_argument("--interval", type=float, default=60.0, help="seconds between checks")
     p.add_argument("--budget-hours", type=float, default=8.0)
     p.add_argument("--max-fires", type=int, default=50)

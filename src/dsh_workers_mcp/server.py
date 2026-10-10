@@ -29,7 +29,7 @@ except ImportError:  # run directly as a script from this directory
 
 # The orchestrator state directory (see state.py). Set by main(); None disables
 # state recording entirely, which is also what a bare import / the tests get.
-STATE: "state_mod.State | None" = None
+STATE: state_mod.State | None = None
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "dsh-workers", "version": "0.1.0"}
@@ -485,7 +485,8 @@ def _tools() -> list[dict]:
                 "in-review, merged, rejected (a new dispatch reopens it), abandoned, "
                 "done (closed without a merge, for example a decision taken or research "
                 "delivered), or back to open. Setting merged, rejected, abandoned or "
-                "done needs a `note`: the commit, the reason, or the outcome. 'update' also sets notes, owner, branch, "
+                "done needs a `note`: the commit, the reason, or the outcome. 'update' also "
+                "sets notes, owner, branch, "
                 "worktree, acceptance and depends_on. 'list' hides closed tasks unless "
                 "you pass include_closed or a status filter. At each dispatch the server "
                 "records the worker's model, effort and permission. At the end of the "

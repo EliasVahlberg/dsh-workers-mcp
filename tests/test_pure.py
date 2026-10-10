@@ -308,7 +308,7 @@ def test_ws_decodes_utf8_payloads() -> None:
 # orchestrator try to respond to, say, a projection update.
 
 def test_answerable_is_exactly_the_two_request_frames() -> None:
-    assert dshctl.ANSWERABLE == {"question/requested", "approval/requested"}
+    assert set(dshctl.ANSWERABLE) == {"question/requested", "approval/requested"}
 
 
 @pytest.mark.parametrize("frame_type", [

@@ -17,7 +17,6 @@ import contextlib
 import datetime as _dt
 import os
 import subprocess
-from pathlib import Path
 
 try:
     from dsh_workers_mcp import digest, dshctl, state as st

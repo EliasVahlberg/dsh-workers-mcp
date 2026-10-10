@@ -29,6 +29,7 @@ import re
 import shlex
 import subprocess
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 # ------------------------------------------------------------------ tool names
 
@@ -373,7 +374,7 @@ def build(events: list[dict], *, turns: int = 1, worktree: str | None = None,
             calls[data["callId"]] = {**data, "seq": event["seq"]}
         elif kind == "tool/result":
             message = data.get("message", {})
-            cid = (message.get("source") or {}).get("callId")
+            cid: Any = (message.get("source") or {}).get("callId")
             content = message.get("content", [])
             results[cid] = {"text": _text(content), "error": _is_error(content)
                             or bool(data.get("error"))}

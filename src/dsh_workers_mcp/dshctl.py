@@ -716,7 +716,7 @@ def validate_answers(answers: list[dict], questions: list[dict]) -> None:
             f"answer the whole batch: {len(questions)} question(s) asked, "
             f"{len(answers)} answer(s) given")
 
-    for index, (answer, question) in enumerate(zip(answers, questions)):
+    for index, (answer, question) in enumerate(zip(answers, questions, strict=True)):
         where = f"answer {index + 1} (id={answer.get('id')!r})"
         if answer.get("id") != question.get("id"):
             raise RpcError(
@@ -1083,7 +1083,8 @@ def restore_default_model(before: str) -> str | None:
     old, new = default_model_lines(before), default_model_lines(after)
     if old == new or not old:
         return None
-    out, inside, pending = [], False, dict(old)
+    out: list[str] = []
+    inside, pending = False, dict(old)
     for line in after.splitlines(keepends=True):
         if line.startswith("agent-default-model:"):
             inside = True

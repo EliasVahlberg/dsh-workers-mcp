@@ -2,13 +2,11 @@
 
 import datetime as dt
 import json
-import os
-import stat
 import subprocess
 
 import pytest
 
-from dsh_workers_mcp import brief, digest, dshctl, server, state as st
+from dsh_workers_mcp import brief, dshctl, server, state as st
 
 A, B, C, D = ("session-aaaa1111", "session-bbbb2222", "session-cccc3333", "session-dddd4444")
 
@@ -218,16 +216,15 @@ def test_long_free_text_roles_are_cut_to_their_first_clause() -> None:
 
 
 def test_a_parked_note_shows_on_the_task_line_until_a_later_note_replaces_it(state) -> None:
+    def line_of(tid: str) -> str:
+        tasks = brief.build(state, now=later(hours=1), pending=[], dsh="up")["openTasks"]
+        return next(entry for entry in tasks if entry.startswith(tid))
+
     tid = task(state, "waits on a merge", "dispatched", A)
     state.update_task(tid, note="PARKED on T-009 merge. Resume: rebase, then rerun make test.")
-    line = next(l for l in brief.build(state, now=later(hours=1), pending=[], dsh="up")["openTasks"]
-                if l.startswith(tid))
-    assert "PARKED on T-009 merge. Resume: rebase, then rerun make test." in line
+    assert "PARKED on T-009 merge. Resume: rebase, then rerun make test." in line_of(tid)
     state.update_task(tid, note="T-009 merged; resumed.")
-    line = next(l for l in brief.build(state, now=later(hours=1), pending=[], dsh="up")["openTasks"]
-                if l.startswith(tid))
-    assert "PARKED" not in line
+    assert "PARKED" not in line_of(tid)
     plain = task(state, "no parked note", "dispatched", A)
     state.update_task(plain, note="the worker asked about naming")
-    assert "|" not in next(l for l in brief.build(state, now=later(hours=1), pending=[], dsh="up")["openTasks"]
-                           if l.startswith(plain)).split("(owner")[1]
+    assert "|" not in line_of(plain).split("(owner")[1]

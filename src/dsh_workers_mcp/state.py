@@ -34,6 +34,7 @@ import json
 import re
 import os
 import tempfile
+from typing import Any
 from pathlib import Path
 
 try:  # POSIX advisory locks; two orchestrator sessions may share a state dir
@@ -96,7 +97,7 @@ def compaction_stalled(comp: dict) -> str | None:
     if (len(tail) == CLIMB_TURNS
             and all(h["usedPct"] >= COMPACT_PCT for h in tail)
             and len({h["summaries"] for h in tail}) == 1
-            and all(a["usedPct"] < b["usedPct"] for a, b in zip(tail, tail[1:]))):
+            and all(a["usedPct"] < b["usedPct"] for a, b in zip(tail, tail[1:], strict=False))):
         levels = " -> ".join(f"{h['usedPct']:.0f}%" for h in tail)
         return f"context rose {levels} over {CLIMB_TURNS} turn ends with no compaction summary"
     return None
@@ -267,7 +268,7 @@ class State:
 
     def set_judgment(self, session_id: str, role: str | None = None,
                      retired: bool | None = None) -> dict:
-        notes = {}
+        notes: dict[str, Any] = {}
         if role is not None:
             notes["role"] = role
         if retired is not None:
@@ -679,9 +680,9 @@ def after_call(state: State, tool: str, arguments: dict, text: str) -> dict | li
         for row in result:
             if row["sessionId"] in report:
                 row["roster"] = report[row["sessionId"]]
-        for session_id, entry in report.items():
-            if session_id not in listed and entry.get("missing"):
-                result.append({"sessionId": session_id, "roster": entry})
+        for sid, entry in report.items():
+            if sid not in listed and entry.get("missing"):
+                result.append({"sessionId": sid, "roster": entry})
         return result
 
     if tool not in OBSERVING:
@@ -847,10 +848,8 @@ RETIRE_WARN_BELOW_PCT = 85.0
 
 
 def retire_warning(state: State, session_id: str) -> str | None:
-    try:
+    with contextlib.suppress(dshctl.RpcError):
         state.observe(session_id)
-    except dshctl.RpcError:
-        pass
     pct = (state.session_state(session_id).get("context") or {}).get("usedPct")
     if pct is None or pct >= RETIRE_WARN_BELOW_PCT:
         return None
@@ -903,6 +902,8 @@ def usage_delta(before: dict | None, after: dict | None) -> dict:
 
 
 def _minutes_between(start: str | None, end: str | None) -> float | None:
+    if start is None or end is None:
+        return None
     try:
         seconds = (_dt.datetime.fromisoformat(end) - _dt.datetime.fromisoformat(start)).total_seconds()
     except (TypeError, ValueError):
@@ -910,7 +911,7 @@ def _minutes_between(start: str | None, end: str | None) -> float | None:
     return round(max(seconds, 0) / 60, 1)
 
 
-def dispatch_facts(state: "State", session_id: str) -> dict:
+def dispatch_facts(state: State, session_id: str) -> dict:
     """The worker's model, effort, permission and usage totals at the moment of dispatch."""
     facts: dict = {}
     with contextlib.suppress(dshctl.RpcError):
@@ -951,7 +952,7 @@ def task_usage(task: dict) -> dict | None:
             **({"total": totals} if totals else {})}
 
 
-def usage_report(state: "State") -> dict:
+def usage_report(state: State) -> dict:
     """Tasks grouped by the model and effort of their first dispatch, with rounds per task."""
     groups: dict[str, dict] = {}
     rows = []
