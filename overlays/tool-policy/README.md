@@ -105,8 +105,8 @@ project cannot afford. These fit most projects:
 `test.ts` covers these three rules. [`docs/SANDBOX.md`](../../docs/SANDBOX.md) has
 a fourth rule, for the dsh settings directory, with its cases in `test.ts`.
 [`RECIPES.md`](RECIPES.md) has more optional rules: no writes in the main
-checkout, no commands outside the worktrees, and a refusal for heredocs that
-tells the worker what to do instead.
+checkout, no commands outside the worktrees, a refusal for heredocs that tells
+the worker what to do instead, and no goals that a worker creates itself.
 
 A bad regex or a malformed rule fails the boot, not the first tool call, because
 the plugin validates its config at load. Add a case to `test.ts` for each rule

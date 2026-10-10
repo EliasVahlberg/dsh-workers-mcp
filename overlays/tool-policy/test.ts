@@ -25,6 +25,7 @@ const pol = { default: 'allow' as const, rules: [
   { tool: 'bash', argument: 'workdir', pattern: outsideTrees, decision: 'deny' as const, reason: 'outside the trees' },
   { tool: 'bash', argument: 'command', pattern: cdBuild, decision: 'deny' as const, reason: 'no build in the sibling' },
   { tool: 'bash', argument: 'command', pattern: heredoc, decision: 'deny' as const, reason: 'no heredoc' },
+  { tool: 'create_goal', decision: 'deny' as const, reason: 'no worker goals' },
   { tool: 'web_search', argument: 'queries', pattern: 'secret', decision: 'ask' as const } ] }
 const v = Config['~standard'].validate({ presets: { a: pol }, fallback: pol })
 if ('issues' in v && v.issues) throw new Error(JSON.stringify(v.issues))
@@ -81,6 +82,11 @@ const cases: [string, unknown, string][] = [
   ['bash', { command: 'echo $((1 << 3))' }, 'allow'],
   ['bash', { command: 'grep x <<< "$value"' }, 'allow'],
   ['bash', { command: 'x=$((1<<n))' }, 'deny'], // a known false positive
+  // recipe 4: goals
+  ['create_goal', { objective: 'make it faster', max_goal_rounds: 5 }, 'deny'],
+  ['create_goal', {}, 'deny'],
+  ['get_goal', {}, 'allow'],
+  ['update_goal', { goal_id: 'g1', revision: 1, action: 'pause' }, 'allow'],
   ['web_search', { queries: ['a', 'my secret'] }, 'ask'],
   ['web_search', { queries: ['benign'] }, 'allow'],
   ['read', { path: 'x' }, 'allow'],

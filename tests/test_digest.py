@@ -191,6 +191,25 @@ def test_refusals_and_errors_are_counted_apart() -> None:
     assert errors["count"] == 2 and errors["refused"] == 1
 
 
+def test_a_goal_the_worker_created_is_reported() -> None:
+    log = Log()
+    log.call(1, "create_goal", {"objective": "make the importer faster", "max_goal_rounds": 12}, "created")
+    log.call(1, "get_goal", {}, "active")
+    log.turn(1)
+    d = digest.build(log.events)
+    assert d["goalsCreatedByWorker"] == [
+        {"seq": 10, "objective": "make the importer faster", "maxGoalRounds": 12}]
+
+
+def test_no_goal_field_without_a_create_call_or_when_the_call_failed() -> None:
+    log = Log()
+    log.call(1, "get_goal", {}, "no goal")
+    log.call(1, "create_goal", {"objective": "x"}, "Error: refused", error=True)
+    log.call(1, "update_goal", {"action": "pause"}, "ok")
+    log.turn(1)
+    assert "goalsCreatedByWorker" not in digest.build(log.events)
+
+
 def test_writes_outside_the_worktree_are_reported() -> None:
     log = Log()
     log.call(1, "edit", {"file_path": "/w/in.py"}, "ok")

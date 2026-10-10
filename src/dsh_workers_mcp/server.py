@@ -526,6 +526,8 @@ def _tools() -> list[dict]:
                 "or failed and the last output line\n"
                 "- whether any check ran after the last edit\n"
                 "- the errors and the tool-policy refusals\n"
+                "- any goal that the worker created itself (`goalsCreatedByWorker`). A "
+                "goal starts autonomous rounds after the turn ends\n"
                 "- if the task has a worktree, what changed in git since the dispatch "
                 "(commits, files, lines)\n"
                 "A command counts as a check if it matches the task's acceptance line, "

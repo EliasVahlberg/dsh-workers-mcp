@@ -15,6 +15,8 @@ Conventions:
 - Build and test with <commands>. <The environment you need, for example a
   cache directory or a credentials path.>
 - Do not edit files outside your worktree unless a task says so.
+- Do not create goals. A goal starts autonomous rounds after your turn ends. If
+  you think a goal would help, say so in your report.
 - Run each check once, and read its saved output (<where it is kept, for
   example build/logs/>). Do not rerun a suite only to see its output again.
   Rerun it when the code changed, or to find the cause of a flaky test. Say

@@ -387,6 +387,7 @@ def build(events: list[dict], *, turns: int = 1, worktree: str | None = None,
     errors: list[dict] = []
     refused = 0
     commands: list[dict] = []
+    goals: list[dict] = []
     for cid, call in calls.items():
         name, result = call["name"], results.get(cid, {"text": "", "error": False})
         tools[name] = tools.get(name, 0) + 1
@@ -412,6 +413,13 @@ def build(events: list[dict], *, turns: int = 1, worktree: str | None = None,
             commands.append({"seq": call["seq"], "cid": cid, "command": args.get("command", ""),
                              "segments": segments, "text": result["text"],
                              "background": started.group(1) if started else None})
+        elif name == "create_goal" and not result["error"]:
+            # A goal starts autonomous rounds after the turn ends (see the skill).
+            # The lead creates goals with the goal RPC, which leaves no tool call,
+            # so a create_goal call in the log is a goal the worker made itself.
+            goals.append({"seq": call["seq"], "objective": _short(str(args.get("objective", "")), 120),
+                          **({"maxGoalRounds": args["max_goal_rounds"]}
+                             if isinstance(args.get("max_goal_rounds"), int) else {})})
         elif name == "job_output":
             done = _JOB_STATUS.search(result["text"])
             if done and args.get("job_id"):
@@ -498,6 +506,8 @@ def build(events: list[dict], *, turns: int = 1, worktree: str | None = None,
         digest["failed"] = failures[-3:]
     if errors:
         digest["errors"] = {"count": len(errors), "refused": refused, "last": errors[-2:]}
+    if goals:
+        digest["goalsCreatedByWorker"] = goals[-3:]
     if worktree:
         outside = sorted(p for p in edited if p.startswith("/"))
         if outside:

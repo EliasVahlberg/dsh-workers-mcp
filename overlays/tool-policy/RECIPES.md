@@ -103,3 +103,23 @@ match a here-string (`<<<`) or an arithmetic shift written with a number
 
 Enable this rule only if your provider needs it. It is the reason for a rule in
 one project, not a default.
+
+## 4. Do not let a worker start its own goal
+
+A goal starts autonomous rounds after a turn ends. The lead creates goals through
+`dsh_goal`. A worker can also create one with its `create_goal` tool. In testing,
+workers did this in the middle of a turn more than once, and the lead found out
+only by reading `goal` in `dsh_status`.
+
+Without a rule, `dsh_digest` shows it afterwards in `goalsCreatedByWorker`. To
+stop it before it happens, deny the tool. The rule has no pattern, so it matches
+the tool name alone:
+
+```yaml
+- tool: create_goal
+  decision: deny
+  reason: do not create goals. A goal starts autonomous rounds that the lead did not ask for. Say in your report what a goal would do.
+```
+
+Put the rule in the presets that your workers use. The workers can still read
+and update a goal that the lead created.

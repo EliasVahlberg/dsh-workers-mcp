@@ -150,6 +150,7 @@ The rule is **the server writes facts, the orchestrator writes judgment**. Judgm
   - the commands that ran as **checks**, each with ok or failed and the last output line
   - whether a check ran **after the last edit**
   - the errors and the tool-policy refusals
+  - any goal that the worker created itself (`goalsCreatedByWorker`)
   - when the task has a worktree, what changed in git since the dispatch (the server records the state of the worktree at dispatch)
 
   A command counts as a check if it matches the acceptance line of the task (backticked commands), a built-in pattern for common runners, or a line in `<state dir>/checks.txt` (one regex for each line). The shell parsing is a heuristic. `python -c` and heredoc scripts show as `opaque`. A failing run behind `| tail` is recognised from its output, because the pipeline hides the exit status. The git section is the reliable record of what changed, whatever command did it.
@@ -175,7 +176,7 @@ The skill covers both facts in more detail, with source citations.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-281 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+283 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious

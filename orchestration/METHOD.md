@@ -110,7 +110,8 @@ Context).
    how to report. Ask the worker to confirm its understanding in under 1500
    characters, and read that reply. The brief is the standing orientation.
    dsh re-asserts `AGENTS.md` after a compaction. A worker that loses a detail
-   can read again the documents that the brief named.
+   can read again the documents that the brief named. Put the rules that must
+   survive a compaction in `AGENTS.md` too (for example: no goals, no pushes).
 
 **Never use `dsh_goal` for orientation.** A goal is an autonomous loop. `set`
 makes the worker start work on it at once, without supervision, for up to 256

@@ -290,6 +290,9 @@ A report is a claim. Before you give any verdict, do these steps:
    - the commands that ran as checks, and whether they passed
    - **whether any check ran after the last edit**
    - errors and tool-policy refusals
+   - goals that the worker created itself (`goalsCreatedByWorker`). Treat each one
+     as a finding: the lead did not ask for it, and it starts rounds after the
+     turn ends. Pause or clear it, and tell the worker why
    - what changed in git since the dispatch
 
    The digest cannot invent, so it is the cross-check on the report. A report
