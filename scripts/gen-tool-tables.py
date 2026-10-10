@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Write the tool table in the README and in the skill from the tool registry.
+Write the tool table in docs/TOOLS.md and in the skill from the tool registry.
 
 The table sits between `<!-- tools:start -->` and `<!-- tools:end -->` in each file.
 Run `uv run python scripts/gen-tool-tables.py` after you change a tool, and commit the
@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from dsh_workers_mcp.tools import all_tools  # noqa: E402
 
-TARGETS = [ROOT / "README.md", ROOT / "skills" / "dsh-workers" / "SKILL.md"]
+TARGETS = [ROOT / "docs" / "TOOLS.md", ROOT / "skills" / "dsh-workers" / "SKILL.md"]
 START, END = "<!-- tools:start -->", "<!-- tools:end -->"
 
 

@@ -27,7 +27,7 @@ is in scope when it shows one of these:
 
 ## What does not count
 
-The README and [`docs/SANDBOX.md`](docs/SANDBOX.md) list what the permission presets
+[`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) and [`docs/SANDBOX.md`](docs/SANDBOX.md) list what the permission presets
 do not stop: reads of any file in the home directory, network access, and writes
 into the area of another worker. The presets control scope. They are not a security
 boundary. A report that repeats one of those listed limits is not a vulnerability.

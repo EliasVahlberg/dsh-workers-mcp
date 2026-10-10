@@ -22,7 +22,7 @@ Start with the first tier. Add the others when you need them.
 | Core | `dsh_create`, `dsh_task`, `dsh_wait`, `dsh_status`, `dsh_pending`, `dsh_answer`, `dsh_approve` | Start a worker, give it work, wait, unblock it. |
 | Tracking | `dsh_tasks`, `dsh_roster`, `dsh_digest`, `dsh_brief` | Keep a record of tasks and workers, and check the work. |
 | Supervision | `dsh_permission`, the [policy overlay](../overlays/tool-policy/README.md) | Limit what a worker may do. |
-| Optional | [`dsh-wake`](../README.md#waking-the-lead), [`scripts/size-gate.sh`](../scripts/size-gate.sh), [`docs/SANDBOX.md`](SANDBOX.md) | Wake the lead, limit task size, box the server. |
+| Optional | [`dsh-wake`](WAKE.md), [`scripts/size-gate.sh`](../scripts/size-gate.sh), [`docs/SANDBOX.md`](SANDBOX.md) | Wake the lead, limit task size, box the server. |
 
 ## 3. Wire the server into the lead
 
@@ -94,7 +94,7 @@ Ask the lead for `dsh_brief`. It shows no open task. It lists the idle worker un
 
 - Run more than one worker, hire for a role, or handle a failed task: [`orchestration/METHOD.md`](../orchestration/METHOD.md) and [`orchestration/PLAYBOOKS.md`](../orchestration/PLAYBOOKS.md).
 - Copy the project files from `orchestration/templates/` into your `.orchestrator/` directory.
-- Understand the limits of a worker: [README, What a worker can and cannot do](../README.md#what-a-worker-can-and-cannot-do).
+- Understand the limits of a worker: [Permissions, What a worker can and cannot do](PERMISSIONS.md#what-a-worker-can-and-cannot-do).
 
 ## What this guide does not prove
 

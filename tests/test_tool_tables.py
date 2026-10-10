@@ -1,4 +1,4 @@
-"""The tool tables in the README and the skill are generated from the tool registry."""
+"""The tool tables in docs/TOOLS.md and the skill are generated from the tool registry."""
 from __future__ import annotations
 
 import importlib.util

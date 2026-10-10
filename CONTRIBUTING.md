@@ -15,6 +15,7 @@ uv run python scripts/gen-tool-tables.py --check
 
 CI runs the same commands. A change is ready when all of them pass. No live dsh
 server is needed: the tests use a stand-in (`tests/fakes.py`, `tests/fake_http.py`).
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) has the detail behind the rules below.
 
 ## Rules
 

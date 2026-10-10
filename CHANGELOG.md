@@ -13,7 +13,7 @@ format can change. The Status section of the README lists what ran and what did 
 
 - **The MCP server** `dsh-workers-mcp`, with 21 tools. A lead agent uses them to hire,
   steer, observe and unblock long-lived dsh worker sessions. The tool tables in the
-  README and in the skill come from one registry.
+  docs and in the skill come from one registry.
 - **`dshctl`**, the same operations as a command line, for debugging.
 - **`dsh-wake`**, an optional loop that runs the client of the lead again when
   something needs it.
