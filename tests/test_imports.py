@@ -23,15 +23,19 @@ LAYERS = {
     "sessions": 1, "shape": 1, "state.store": 1,
     "pending": 2, "permissions": 2, "models": 2, "state.usage": 2,
     "waiting": 3, "state.history": 3, "state.roster": 3, "state.tasks": 3,
+    "tools.base": 1,
     "state.core": 4,
     "state.reports": 5,
     "state.hooks": 6,
     "state": 7,
     # the commands, the program built on the state, and the entry points
     "cmd_sessions": 4, "cmd_work": 4,
+    "tools.session_tools": 5, "tools.work_tools": 5,
     "dshctl": 5,
     "brief": 8,
-    "server": 9, "wake": 9,
+    "tools.state_tools": 9, "wake": 9,
+    "tools": 10,
+    "server": 11,
     "__init__": 0,
 }
 
@@ -86,7 +90,7 @@ def test_modules_import_only_from_lower_layers() -> None:
             target = resolve(name)
             if target is None or target == me:
                 continue
-            if me == "state" and target.startswith("state."):
+            if me in ("state", "tools") and target.startswith(me + "."):
                 continue                                  # the package re-exports its own modules
             if LAYERS[target] >= LAYERS[me]:
                 problems.append(f"{me} (layer {LAYERS[me]}) imports {target} (layer {LAYERS[target]})")

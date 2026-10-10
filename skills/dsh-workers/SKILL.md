@@ -23,28 +23,31 @@ dshctl ask <session> "question"
 
 ## The operations
 
-| Need | Tool | Blocking? |
+<!-- tools:start -->
+| Tool | Does | Blocks? |
 |---|---|---|
-| Who is on the team, who is busy | `dsh_list` | no |
-| Deep insight into one worker | `dsh_status` | no |
-| Search the history of one worker | `dsh_grep` | no |
-| Find which worker discussed X | `dsh_search` | no |
-| Which model a worker runs on; change its reasoning effort | `dsh_models` (`reasoning_effort=` sets it, only while the worker is idle) | no |
-| Delegate real work | `dsh_task` | **no**, it returns at once |
-| Quick question or design opinion | `dsh_ask` | yes, until the turn ends |
-| Wait for a running worker | `dsh_wait` (`sessions=[…]` for several workers: it returns for the first one that ends a turn or blocks) | yes, and it returns early if the worker blocks |
-| **What a worker is blocked on** | `dsh_pending` | no |
-| **Unblock it** with an answer to a question | `dsh_answer` | no |
-| **Unblock it** with a tool approval | `dsh_approve` | no |
-| Read or revise its standing objective | `dsh_goal` | no |
-| **Name a worker by its role** | `dsh_name` | no |
-| Hire a new worker | `dsh_create` (+ `permission`) | no |
-| Set its supervision level | `dsh_permission` | no |
-| Interrupt a running turn | `dsh_cancel` | briefly, to confirm the abort |
-| Your team: roles, notes, last observed state | `dsh_roster` | no |
-| Your task records and verdicts | `dsh_tasks` | no |
-| What a worker did in its last turns, by mechanical means | `dsh_digest` | no |
-| The start-of-session sweep and your to-do list | `dsh_brief` | no |
+| `dsh_list` | the roster: who exists, who is busy, context pressure | no |
+| `dsh_status` | deep insight into one worker, including `lastTurnEnd` | no |
+| `dsh_grep` | regex over the own history of one worker, paged backwards | no |
+| `dsh_search` | full-text search across every session, to find who discussed a topic | no |
+| `dsh_task` | dispatch real work. The call returns at once | no |
+| `dsh_ask` | ask a quick question and wait for the reply | yes, until the turn ends |
+| `dsh_wait` | wait for a turn to end, or return early when the worker blocks. `sessions=[…]` returns for the first of several workers | yes, and it returns early if the worker blocks |
+| `dsh_models` | model and reasoning-effort levels. `reasoning_effort=` sets the effort of a worker, only while it is idle | no |
+| `dsh_create` | create a worker, optionally at a permission preset | no |
+| `dsh_pending` | **what a worker is blocked on** | no |
+| `dsh_answer` | **unblock it** (a question) | no |
+| `dsh_fork` | fork a session at a turn boundary (recovers a poisoned history) | no |
+| `dsh_goal` | read or drive a goal, which is an autonomous loop (`set` needs `start=true`) | no |
+| `dsh_cancel` | interrupt a turn, and confirm that the abort landed | briefly, to confirm the abort |
+| `dsh_name` | pin a role name on a worker, so that the roster is readable | no |
+| `dsh_permission` | show or set the supervision level of a worker | no |
+| `dsh_approve` | **unblock it** (a tool approval), after you read the real arguments | no |
+| `dsh_roster` | managed workers: facts that the server fills in, plus your role and notes | no |
+| `dsh_tasks` | task records: dispatch and return as the server tracks them, plus your verdicts | no |
+| `dsh_digest` | what a worker did in its last turns, computed mechanically (no model) | no |
+| `dsh_brief` | the start-of-session sweep: what needs you, then the roster and the open tasks | no |
+<!-- tools:end -->
 
 The three groups matter more than the single tools. They are **delegate**
 (`dsh_task` and `dsh_ask`), **report** (`dsh_status` and `dsh_grep`), and

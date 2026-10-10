@@ -92,29 +92,31 @@ If you run workers unattended, you can accept this, or you can box the dsh serve
 
 ## The tools
 
+<!-- tools:start -->
 | Tool | Does | Blocks? |
 |---|---|---|
 | `dsh_list` | the roster: who exists, who is busy, context pressure | no |
 | `dsh_status` | deep insight into one worker, including `lastTurnEnd` | no |
 | `dsh_grep` | regex over the own history of one worker, paged backwards | no |
 | `dsh_search` | full-text search across every session, to find who discussed a topic | no |
-| `dsh_models` | model and reasoning-effort levels. Sets the effort of a worker (`reasoning_effort=`) | no |
+| `dsh_task` | dispatch real work. The call returns at once | no |
+| `dsh_ask` | ask a quick question and wait for the reply | yes, until the turn ends |
+| `dsh_wait` | wait for a turn to end, or return early when the worker blocks. `sessions=[…]` returns for the first of several workers | yes, and it returns early if the worker blocks |
+| `dsh_models` | model and reasoning-effort levels. `reasoning_effort=` sets the effort of a worker, only while it is idle | no |
+| `dsh_create` | create a worker, optionally at a permission preset | no |
 | `dsh_pending` | **what a worker is blocked on** | no |
 | `dsh_answer` | **unblock it** (a question) | no |
-| `dsh_approve` | **unblock it** (a tool approval), after you read the real arguments | no |
-| `dsh_task` | dispatch real work | no |
-| `dsh_ask` | ask a quick question and wait for the reply | yes |
-| `dsh_wait` | wait for a turn to end, or return early when the worker blocks. `sessions=[…]` returns for the first of several workers | yes |
 | `dsh_fork` | fork a session at a turn boundary (recovers a poisoned history) | no |
 | `dsh_goal` | read or drive a goal, which is an autonomous loop (`set` needs `start=true`) | no |
+| `dsh_cancel` | interrupt a turn, and confirm that the abort landed | briefly, to confirm the abort |
 | `dsh_name` | pin a role name on a worker, so that the roster is readable | no |
-| `dsh_create` | create a worker, optionally at a permission preset | no |
 | `dsh_permission` | show or set the supervision level of a worker | no |
-| `dsh_cancel` | interrupt a turn, and confirm that the abort landed | briefly |
+| `dsh_approve` | **unblock it** (a tool approval), after you read the real arguments | no |
 | `dsh_roster` | managed workers: facts that the server fills in, plus your role and notes | no |
 | `dsh_tasks` | task records: dispatch and return as the server tracks them, plus your verdicts | no |
 | `dsh_digest` | what a worker did in its last turns, computed mechanically (no model) | no |
 | `dsh_brief` | the start-of-session sweep: what needs you, then the roster and the open tasks | no |
+<!-- tools:end -->
 
 Three groups carry the weight: **delegate** (`dsh_task` and `dsh_ask`), **report** (`dsh_status` and `dsh_grep`), and **unblock** (`dsh_pending` and `dsh_answer`). The other tools keep a long-lived roster readable.
 
@@ -206,7 +208,9 @@ CI runs these on every push and pull request, with the tests on Python 3.10, 3.1
 
 The modules import each other in one direction only. The docstring of [`src/dsh_workers_mcp/__init__.py`](src/dsh_workers_mcp/__init__.py) lists the layers, and `tests/test_imports.py` fails on an import that points up or sideways. To share code between two modules, move it to a lower layer.
 
-396 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+To add a tool, add one `Tool` object to `tools/session_tools.py`, `tools/work_tools.py` or `tools/state_tools.py`. It holds the name, the description, the schema, the handler, and a one-line summary. Then run `uv run python scripts/gen-tool-tables.py` to update the tool tables in this README and in the skill. `tests/test_tool_tables.py` fails when a table is out of date.
+
+403 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious

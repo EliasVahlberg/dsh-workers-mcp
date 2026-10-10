@@ -10,7 +10,6 @@
   "src/dsh_workers_mcp/models.py::restore_default_model": 16,
   "src/dsh_workers_mcp/models.py::select_model": 15,
   "src/dsh_workers_mcp/pending.py::validate_answers": 18,
-  "src/dsh_workers_mcp/server.py::handle": 16,
   "src/dsh_workers_mcp/sessions.py::text_of": 12,
   "src/dsh_workers_mcp/state/history.py::HistoryMixin._track_compaction": 15,
   "src/dsh_workers_mcp/state/history.py::HistoryMixin.sync_history": 15,

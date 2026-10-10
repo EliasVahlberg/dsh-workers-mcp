@@ -9,11 +9,19 @@ The invariant that matters most here: a tool failure must come back as an
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from fakes import ScriptedClient
 
 from dsh_workers_mcp import dshctl, server
+from dsh_workers_mcp.tools import Args, Tool, capture
+
+
+def _listed() -> list[dict]:
+    """Every tool as the MCP tools/list answer shows it."""
+    return [tool.listing() for tool in server.TOOLS.values()]
 
 
 def _call(name: str, arguments: dict | None = None, request_id: int = 1) -> dict:
@@ -47,14 +55,42 @@ def test_unsupported_request_gets_an_error() -> None:
 
 # ------------------------------------------------------------------ tool list
 
-def test_every_dispatchable_tool_is_declared() -> None:
-    """A tool in DISPATCH but absent from tools/list is invisible to a client."""
-    declared = {tool["name"] for tool in server._tools()}
-    assert declared == set(server.DISPATCH) | set(server.STATE_TOOLS)
+def test_every_tool_is_listed_to_the_client_and_has_a_handler(state) -> None:
+    """A tool that the registry holds but tools/list omits is invisible to a client."""
+    response = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    listed = {tool["name"] for tool in response["result"]["tools"]}
+    assert listed == set(server.TOOLS)
+    for name, tool in server.TOOLS.items():
+        assert tool.name == name and callable(tool.handler), name
+
+
+def test_state_tools_are_listed_only_with_a_state_directory(monkeypatch) -> None:
+    monkeypatch.setattr(server, "STATE", None)
+    response = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    listed = {tool["name"] for tool in response["result"]["tools"]}
+    assert listed == {name for name, tool in server.TOOLS.items() if not tool.needs_state}
+    assert {"dsh_roster", "dsh_tasks", "dsh_digest", "dsh_brief"}.isdisjoint(listed)
+    refused = _call("dsh_roster")["result"]
+    assert refused["isError"] is True and "state directory" in refused["content"][0]["text"]
+
+
+def test_adding_a_tool_is_adding_one_object(monkeypatch) -> None:
+    """The listing, the dispatch and the error handling all come from the registry."""
+    toy = Tool(name="dsh_toy", description="A toy.", schema={"type": "object", "properties": {}},
+               summary="a toy", blocks="no", handler=lambda ctx, a: f"hello {a.get('who', 'world')}")
+    monkeypatch.setitem(server.TOOLS, "dsh_toy", toy)
+    assert "dsh_toy" in {t["name"] for t in _listed()}
+    assert _call("dsh_toy", {"who": "you"})["result"]["content"][0]["text"] == "hello you"
+
+
+def test_every_tool_has_a_summary_and_a_blocks_note() -> None:
+    for tool in server.TOOLS.values():
+        assert tool.summary.strip() and tool.blocks.strip(), tool.name
+        assert "\n" not in tool.summary and "|" not in tool.summary, tool.name   # it goes in a table
 
 
 def test_tools_list_covers_the_expected_surface() -> None:
-    declared = {tool["name"] for tool in server._tools()}
+    declared = {tool["name"] for tool in _listed()}
     assert declared == {
         # observe
         "dsh_list", "dsh_status", "dsh_grep", "dsh_search", "dsh_models",
@@ -70,7 +106,7 @@ def test_tools_list_covers_the_expected_surface() -> None:
 
 
 def test_every_tool_declares_a_schema_and_description() -> None:
-    for tool in server._tools():
+    for tool in _listed():
         assert tool["description"].strip(), tool["name"]
         assert tool["inputSchema"]["type"] == "object", tool["name"]
 
@@ -78,14 +114,14 @@ def test_every_tool_declares_a_schema_and_description() -> None:
 def test_session_taking_tools_require_session() -> None:
     needs_session = {"dsh_status", "dsh_grep", "dsh_task", "dsh_ask",
                      "dsh_models", "dsh_cancel", "dsh_answer", "dsh_goal"}
-    for tool in server._tools():
+    for tool in _listed():
         if tool["name"] in needs_session:
             assert "session" in tool["inputSchema"].get("required", []), tool["name"]
 
 
 def test_wait_takes_one_session_or_several() -> None:
     """dsh_wait's schema requires neither, so the handler has to refuse an empty call."""
-    wait = next(t for t in server._tools() if t["name"] == "dsh_wait")
+    wait = next(t for t in _listed() if t["name"] == "dsh_wait")
     assert {"session", "sessions"} <= set(wait["inputSchema"]["properties"])
     response = _call("dsh_wait", {})
     assert response["result"]["isError"] is True
@@ -94,7 +130,7 @@ def test_wait_takes_one_session_or_several() -> None:
 
 def test_pending_does_not_require_a_session() -> None:
     """Its whole purpose is the cross-session snapshot; session is a filter."""
-    pending = next(t for t in server._tools() if t["name"] == "dsh_pending")
+    pending = next(t for t in _listed() if t["name"] == "dsh_pending")
     assert "session" not in pending["inputSchema"].get("required", [])
 
 
@@ -159,9 +195,9 @@ def test_tool_output_is_captured_not_printed(monkeypatch, capsys) -> None:
     command prints must be captured into the result instead of corrupting the
     frame stream.
     """
-    monkeypatch.setitem(server.DISPATCH, "dsh_list",
-                        lambda a: server._capture(
-                            lambda _args: print("payload"), server.Args()))
+    original = server.TOOLS["dsh_list"]
+    monkeypatch.setitem(server.TOOLS, "dsh_list", dataclasses.replace(
+        original, handler=lambda ctx, a: capture(lambda _args: print("payload"), Args(ctx.client))))
     response = _call("dsh_list")
     assert response["result"]["content"][0]["text"] == "payload"
     assert capsys.readouterr().out == ""
