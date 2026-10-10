@@ -28,6 +28,7 @@ import json
 import re
 import shlex
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -345,27 +346,35 @@ def _rel(path: str, root: str | None) -> str:
     return path
 
 
-def build(events: list[dict], *, turns: int = 1, worktree: str | None = None,
-          acceptance: str | None = None, patterns: list[str] | None = None) -> dict:
-    """
-    Digest the last `turns` turns of a worker's mirrored events (oldest first).
-    `worktree` is the task's worktree, `acceptance` its acceptance text, and
-    `patterns` extra regexes (from the project) that mark a command as a check.
-    """
-    patterns = patterns or []
-    spans = check_spans(acceptance)
-    numbered = [e.get("data", {}).get("turn") for e in events]
-    numbered = [n for n in numbered if isinstance(n, int)]
-    if not numbered:
-        return {"turns": None, "note": "no turns in the mirrored history yet"}
-    first_turn = max(min(numbered), max(numbered) - max(turns, 1) + 1)
-    window = [e for e in events if isinstance(e.get("data", {}).get("turn"), int)
-              and e["data"]["turn"] >= first_turn]
+@dataclass
+class _Fold:
+    """What the tool calls of a window add up to."""
 
+    tools: dict[str, int] = field(default_factory=dict)
+    edited: dict[str, int] = field(default_factory=dict)
+    errors: list[dict] = field(default_factory=list)
+    refused: int = 0
+    commands: list[dict] = field(default_factory=list)
+    goals: list[dict] = field(default_factory=list)
+    jobs: dict[str, str] = field(default_factory=dict)       # background job id -> callId
+    job_done: dict[str, tuple[str, int | None]] = field(default_factory=dict)
+
+
+def _turn_window(events: list[dict], turns: int) -> tuple[int, int, list[dict]] | None:
+    """The events of the last `turns` numbered turns, as (first turn, last turn, events)."""
+    numbered = [n for n in (e.get("data", {}).get("turn") for e in events) if isinstance(n, int)]
+    if not numbered:
+        return None
+    first = max(min(numbered), max(numbered) - max(turns, 1) + 1)
+    window = [e for e in events if isinstance(e.get("data", {}).get("turn"), int)
+              and e["data"]["turn"] >= first]
+    return first, max(numbered), window
+
+
+def _index_events(window: list[dict]) -> tuple[dict[str, dict], dict[str, dict], int, str | None]:
+    """The calls and results of a window by call id, the number of steps and how the last turn ended."""
     calls: dict[str, dict] = {}
     results: dict[str, dict] = {}
-    jobs: dict[str, str] = {}      # background job id -> callId
-    job_done: dict[str, tuple[str, int | None]] = {}
     steps = 0
     ended = None
     for event in window:
@@ -382,88 +391,123 @@ def build(events: list[dict], *, turns: int = 1, worktree: str | None = None,
             steps += 1
         elif kind == "turn/end":
             ended = ((data.get("reason") or {}).get("kind")) or ended
+    return calls, results, steps, ended
 
-    tools: dict[str, int] = {}
-    edited: dict[str, int] = {}
-    errors: list[dict] = []
-    refused = 0
-    commands: list[dict] = []
-    goals: list[dict] = []
+
+def _call_arguments(call: dict) -> dict:
+    try:
+        return json.loads(call.get("arguments") or "{}")
+    except ValueError:
+        return {}
+
+
+def _fold_calls(calls: dict[str, dict], results: dict[str, dict], worktree: str | None) -> _Fold:
+    fold = _Fold()
     for cid, call in calls.items():
         name, result = call["name"], results.get(cid, {"text": "", "error": False})
-        tools[name] = tools.get(name, 0) + 1
-        try:
-            args = json.loads(call.get("arguments") or "{}")
-        except ValueError:
-            args = {}
+        fold.tools[name] = fold.tools.get(name, 0) + 1
+        args = _call_arguments(call)
         if result["error"]:
-            if "[tool-policy" in result["text"]:
-                refused += 1
-            errors.append({"tool": name, "seq": call["seq"], "text": _short(result["text"], 160)})
+            _fold_error(fold, call, result)
         if name in EDIT_TOOLS and not result["error"]:
-            path = next((args[k] for k in PATH_KEYS if isinstance(args.get(k), str)), None)
-            if path:
-                key = _rel(path, worktree)
-                edited[key] = edited.get(key, 0) + 1
-                commands.append({"seq": call["seq"], "edit": True})
+            _fold_edit(fold, call, args, worktree)
         elif name == "bash" and not result["error"]:
-            started = _JOB_STARTED.search(result["text"])
-            if started:
-                jobs[started.group(1)] = cid
-            segments = analyze(args.get("command", ""))
-            commands.append({"seq": call["seq"], "cid": cid, "command": args.get("command", ""),
-                             "segments": segments, "text": result["text"],
-                             "background": started.group(1) if started else None})
+            _fold_bash(fold, cid, call, args, result)
         elif name == "create_goal" and not result["error"]:
-            # A goal starts autonomous rounds after the turn ends (see the skill).
-            # The lead creates goals with the goal RPC, which leaves no tool call,
-            # so a create_goal call in the log is a goal the worker made itself.
-            goals.append({"seq": call["seq"], "objective": _short(str(args.get("objective", "")), 120),
-                          **({"maxGoalRounds": args["max_goal_rounds"]}
-                             if isinstance(args.get("max_goal_rounds"), int) else {})})
+            _fold_goal(fold, call, args)
         elif name == "job_output":
-            done = _JOB_STATUS.search(result["text"])
-            if done and args.get("job_id"):
-                job_done[args["job_id"]] = (done.group(1),
-                                            int(done.group(2)) if done.group(2) else None)
-                jobs.setdefault(args["job_id"], "")
-                commands.append({"seq": call["seq"], "job": args["job_id"],
-                                 "text": result["text"]})
+            _fold_job_output(fold, call, args, result)
+    return fold
 
-    shell = [c for c in commands if "segments" in c]
-    by_verb: dict[str, int] = {}
+
+def _fold_error(fold: _Fold, call: dict, result: dict) -> None:
+    fold.refused += 1 if "[tool-policy" in result["text"] else 0
+    fold.errors.append({"tool": call["name"], "seq": call["seq"], "text": _short(result["text"], 160)})
+
+
+def _fold_edit(fold: _Fold, call: dict, args: dict, worktree: str | None) -> None:
+    path = next((args[k] for k in PATH_KEYS if isinstance(args.get(k), str)), None)
+    if path:
+        key = _rel(path, worktree)
+        fold.edited[key] = fold.edited.get(key, 0) + 1
+        fold.commands.append({"seq": call["seq"], "edit": True})
+
+
+def _fold_bash(fold: _Fold, cid: str, call: dict, args: dict, result: dict) -> None:
+    started = _JOB_STARTED.search(result["text"])
+    if started:
+        fold.jobs[started.group(1)] = cid
+    fold.commands.append({
+        "seq": call["seq"], "cid": cid, "command": args.get("command", ""),
+        "segments": analyze(args.get("command", "")), "text": result["text"],
+        "background": started.group(1) if started else None})
+
+
+def _fold_goal(fold: _Fold, call: dict, args: dict) -> None:
+    # A goal starts autonomous rounds after the turn ends (see the skill).
+    # The lead creates goals with the goal RPC, which leaves no tool call,
+    # so a create_goal call in the log is a goal the worker made itself.
+    fold.goals.append({"seq": call["seq"], "objective": _short(str(args.get("objective", "")), 120),
+                       **({"maxGoalRounds": args["max_goal_rounds"]}
+                          if isinstance(args.get("max_goal_rounds"), int) else {})})
+
+
+def _fold_job_output(fold: _Fold, call: dict, args: dict, result: dict) -> None:
+    done = _JOB_STATUS.search(result["text"])
+    if done and args.get("job_id"):
+        fold.job_done[args["job_id"]] = (done.group(1), int(done.group(2)) if done.group(2) else None)
+        fold.jobs.setdefault(args["job_id"], "")
+        fold.commands.append({"seq": call["seq"], "job": args["job_id"], "text": result["text"]})
+
+
+def _verb_counts(shell: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for c in shell:
         for s in c["segments"]:
             verb = re.sub(r"[\d.]+$", "", s["verb"])
             verb = verb if verb in INTERPRETERS else s["verb"]      # python3.11 -> python
             if verb not in _NOISE_VERBS and verb.replace("-", "").replace(".", "").isalnum():
-                by_verb[verb] = by_verb.get(verb, 0) + 1
-    shell_writes = [c for c in shell if any(s["writes"] for s in c["segments"])]
-    opaque = [c for c in shell if any(s["opaque"] for s in c["segments"])]
+                counts[verb] = counts.get(verb, 0) + 1
+    return counts
 
+
+def _job_result(c: dict, fold: _Fold) -> tuple[int | None, str, str]:
+    """(exit code, status, output) of a command that ran as a background job."""
+    state, code = fold.job_done.get(c["background"], ("running", None))
+    status = ("ok" if state == "completed" and code == 0
+              else "running" if state == "running" else "failed")
+    # the finished job's output is the last line worth showing
+    finished = next((j for j in fold.commands if j.get("job") == c["background"]
+                     and _JOB_STATUS.search(j["text"])), None)
+    return code, status, finished["text"] if finished else c["text"]
+
+
+def _command_result(c: dict, fold: _Fold) -> tuple[int | None, str, str]:
+    """(exit code, status, output) of one shell command. A background job is followed to its end."""
+    if c["background"]:
+        return _job_result(c, fold)
+    m = _EXIT_LINE.search(c["text"])
+    if m:
+        return int(m.group(1)), "failed" if int(m.group(1)) else "ok", c["text"]
+    return None, "ok", c["text"]
+
+
+def _check_entry(c: dict, exit_code: int | None, status: str) -> dict:
+    entry = {"cmd": _display(c["command"], 100),
+             "ok": status == "ok" if status != "running" else None, "seq": c["seq"]}
+    if exit_code not in (None, 0):
+        entry["exit"] = exit_code
+    return entry
+
+
+def _checks_and_failures(shell: list[dict], fold: _Fold, patterns: list[str],
+                         spans: list) -> tuple[list[dict], list[dict]]:
     checks: list[dict] = []
     failures: list[dict] = []
     for c in shell:
         via = next((v for v in (check_via(s, patterns, spans) for s in c["segments"]) if v), None)
-        text = c["text"]
-        exit_code: int | None = None
-        status = "ok"
-        if c["background"]:
-            state, code = job_done.get(c["background"], ("running", None))
-            exit_code, status = code, ("ok" if state == "completed" and code == 0
-                                       else "running" if state == "running" else "failed")
-            # the finished job's output is the last line worth showing
-            finished = next((j for j in commands if j.get("job") == c["background"]
-                             and _JOB_STATUS.search(j["text"])), None)
-            text = finished["text"] if finished else text
-        else:
-            m = _EXIT_LINE.search(text)
-            if m:
-                exit_code, status = int(m.group(1)), ("failed" if int(m.group(1)) else "ok")
-        entry = {"cmd": _display(c["command"], 100),
-                 "ok": status == "ok" if status != "running" else None, "seq": c["seq"]}
-        if exit_code not in (None, 0):
-            entry["exit"] = exit_code
+        exit_code, status, text = _command_result(c, fold)
+        entry = _check_entry(c, exit_code, status)
         if via:
             # A pipeline (`make test | tail`) reports the last command's status, so
             # a failing run can come back without an exit line. The output says so.
@@ -474,45 +518,83 @@ def build(events: list[dict], *, turns: int = 1, worktree: str | None = None,
         elif status == "failed":
             entry["tail"] = _last_line(text)
             failures.append(entry)
+    return checks, failures
 
-    last_edit = max([c["seq"] for c in shell_writes] + [c["seq"] for c in commands if c.get("edit")],
+
+def _verification(checks: list[dict], writes: list[dict], commands: list[dict]) -> dict:
+    last_edit = max([c["seq"] for c in writes] + [c["seq"] for c in commands if c.get("edit")],
                     default=None)
+    if not checks:
+        return {"checkedAfterLastEdit": False if last_edit is not None else None,
+                "note": "no command matched as a check"}
     after = [c for c in checks if last_edit is None or c["seq"] > last_edit]
-    if checks:
-        verification = {"checkedAfterLastEdit": bool(after) if last_edit is not None else None,
-                        "lastCheckOk": checks[-1]["ok"]}
-    else:
-        verification = {"checkedAfterLastEdit": False if last_edit is not None else None,
-                        "note": "no command matched as a check"}
+    return {"checkedAfterLastEdit": bool(after) if last_edit is not None else None,
+            "lastCheckOk": checks[-1]["ok"]}
 
-    def cap(items: list, n: int = MAX_LIST) -> list:
-        return items[:n] + ([f"+{len(items) - n} more"] if len(items) > n else [])
 
-    root = None if worktree else _common_dir(list(edited))
-    shown = [(_rel(p, root) if root else p, n) for p, n in edited.items()]
-    digest: dict = {
-        "turns": [first_turn, max(numbered)], "ended": ended, "steps": steps,
-        "tools": dict(sorted(tools.items(), key=lambda kv: -kv[1])),
-        **({"root": root} if root else {}),
-        "edited": cap([f"{p} x{n}" if n > 1 else p for p, n in shown], 10),
-        "shell": {"commands": len(shell), "writes": len(shell_writes), "opaque": len(opaque),
-                  "byVerb": dict(sorted(by_verb.items(), key=lambda kv: -kv[1])[:8])},
-        "checks": checks[-4:], "verification": verification,
-    }
-    if shell_writes:
-        digest["shell"]["writeCommands"] = cap([_display(c["command"], 100) for c in shell_writes], 3)
+def _cap(items: list, n: int = MAX_LIST) -> list:
+    return items[:n] + ([f"+{len(items) - n} more"] if len(items) > n else [])
+
+
+def _optional_sections(digest: dict, fold: _Fold, writes: list[dict], opaque: list[dict],
+                       failures: list[dict], worktree: str | None) -> None:
+    """Add the parts of a digest that exist only when there is something to say."""
+    if writes:
+        digest["shell"]["writeCommands"] = _cap([_display(c["command"], 100) for c in writes], 3)
     if opaque:
-        digest["shell"]["opaqueCommands"] = cap([_display(c["command"], 100) for c in opaque], 3)
+        digest["shell"]["opaqueCommands"] = _cap([_display(c["command"], 100) for c in opaque], 3)
     if failures:
         digest["failed"] = failures[-3:]
-    if errors:
-        digest["errors"] = {"count": len(errors), "refused": refused, "last": errors[-2:]}
-    if goals:
-        digest["goalsCreatedByWorker"] = goals[-3:]
-    if worktree:
-        outside = sorted(p for p in edited if p.startswith("/"))
-        if outside:
-            digest["editedOutsideWorktree"] = cap(outside)
+    _findings(digest, fold, worktree)
+
+
+def _findings(digest: dict, fold: _Fold, worktree: str | None) -> None:
+    if fold.errors:
+        digest["errors"] = {"count": len(fold.errors), "refused": fold.refused,
+                            "last": fold.errors[-2:]}
+    if fold.goals:
+        digest["goalsCreatedByWorker"] = fold.goals[-3:]
+    outside = sorted(p for p in fold.edited if p.startswith("/")) if worktree else []
+    if outside:
+        digest["editedOutsideWorktree"] = _cap(outside)
+
+
+def _edited_view(fold: _Fold, worktree: str | None) -> dict:
+    """The `root` and `edited` entries: paths relative to the worktree, or to their common root."""
+    root = None if worktree else _common_dir(list(fold.edited))
+    shown = [(_rel(p, root) if root else p, n) for p, n in fold.edited.items()]
+    return {**({"root": root} if root else {}),
+            "edited": _cap([f"{p} x{n}" if n > 1 else p for p, n in shown], 10)}
+
+
+def build(events: list[dict], *, turns: int = 1, worktree: str | None = None,
+          acceptance: str | None = None, patterns: list[str] | None = None) -> dict:
+    """
+    Digest the last `turns` turns of a worker's mirrored events (oldest first).
+    `worktree` is the task's worktree, `acceptance` its acceptance text, and
+    `patterns` extra regexes (from the project) that mark a command as a check.
+    """
+    span = _turn_window(events, turns)
+    if span is None:
+        return {"turns": None, "note": "no turns in the mirrored history yet"}
+    first_turn, last_turn, window = span
+    calls, results, steps, ended = _index_events(window)
+    fold = _fold_calls(calls, results, worktree)
+
+    shell = [c for c in fold.commands if "segments" in c]
+    writes = [c for c in shell if any(s["writes"] for s in c["segments"])]
+    opaque = [c for c in shell if any(s["opaque"] for s in c["segments"])]
+    checks, failures = _checks_and_failures(shell, fold, patterns or [], check_spans(acceptance))
+
+    digest: dict = {
+        "turns": [first_turn, last_turn], "ended": ended, "steps": steps,
+        "tools": dict(sorted(fold.tools.items(), key=lambda kv: -kv[1])),
+        **_edited_view(fold, worktree),
+        "shell": {"commands": len(shell), "writes": len(writes), "opaque": len(opaque),
+                  "byVerb": dict(sorted(_verb_counts(shell).items(), key=lambda kv: -kv[1])[:8])},
+        "checks": checks[-4:], "verification": _verification(checks, writes, fold.commands),
+    }
+    _optional_sections(digest, fold, writes, opaque, failures, worktree)
     return digest
 
 

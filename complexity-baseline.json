@@ -3,7 +3,7 @@
   "src/dsh_workers_mcp/digest.py::_classify": 37,
   "src/dsh_workers_mcp/digest.py::_split_redirects": 19,
   "src/dsh_workers_mcp/digest.py::_unwrap": 14,
-  "src/dsh_workers_mcp/digest.py::build": 98,
+  "src/dsh_workers_mcp/digest.py::build": 11,
   "src/dsh_workers_mcp/digest.py::git_changes": 14,
   "src/dsh_workers_mcp/dshctl.py::cmd_goal": 12,
   "src/dsh_workers_mcp/dshctl.py::cmd_status": 14,

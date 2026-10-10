@@ -300,3 +300,94 @@ def test_untracked_files_present_at_dispatch_are_not_attributed(repo) -> None:
     before = digest.git_snapshot(str(repo))
     (repo / "mine.txt").write_text("y")
     assert digest.git_changes(str(repo), before)["files"] == ["mine.txt"]
+
+
+# ------------------------------------------------- the steps that build() joins
+
+def test_turn_window_keeps_the_last_numbered_turns() -> None:
+    events = [ev(1, "step/start", 1), ev(2, "step/start", 2), ev(3, "step/start", 3),
+              {"seq": 4, "type": "x", "data": {}}]                    # an event without a turn
+    assert digest._turn_window(events, turns=2) == (2, 3, events[1:3])
+    assert digest._turn_window(events, turns=9)[0] == 1               # never before the first turn
+    assert digest._turn_window([{"seq": 1, "type": "x", "data": {}}], turns=1) is None
+
+
+def test_index_events_pairs_calls_with_results_and_counts_steps() -> None:
+    log = Log()
+    log.call(1, "bash", {"command": "ls"}, "a.txt")
+    log.turn(1, ended="aborted")
+    calls, results, steps, ended = digest._index_events(log.events)
+    assert list(calls) == ["call_1"] and calls["call_1"]["seq"] == 10
+    assert results["call_1"] == {"text": "a.txt", "error": False}
+    assert (steps, ended) == (1, "aborted")
+
+
+def test_fold_calls_collects_edits_errors_and_goals() -> None:
+    log = Log()
+    log.call(1, "edit", {"file_path": "/w/a.py"}, "ok")
+    log.call(1, "edit", {"file_path": "/w/b.py"}, "no", error=True)
+    log.call(1, "bash", {"command": "touch /x"}, "denied [tool-policy: rule]", error=True)
+    log.call(1, "create_goal", {"objective": "o" * 200, "max_goal_rounds": 3}, "created")
+    calls, results, _, _ = digest._index_events(log.events)
+    fold = digest._fold_calls(calls, results, "/w")
+    assert fold.edited == {"a.py": 1} and fold.refused == 1 and len(fold.errors) == 2
+    assert fold.goals[0]["seq"] == 40 and fold.goals[0]["maxGoalRounds"] == 3
+    assert len(fold.goals[0]["objective"]) <= 120
+    assert [c.get("edit") for c in fold.commands] == [True]            # the failed bash is not a command
+
+
+def test_fold_calls_follows_a_background_job_to_its_end() -> None:
+    log = Log()
+    log.call(1, "bash", {"command": "make test &"}, "started background job job-1")
+    log.call(1, "job_output", {"job_id": "job-1"}, "[status: completed, exit code: 0]")
+    calls, results, _, _ = digest._index_events(log.events)
+    fold = digest._fold_calls(calls, results, "/w")
+    assert fold.jobs == {"job-1": "call_1"} and fold.job_done == {"job-1": ("completed", 0)}
+
+
+def test_command_result_reads_the_exit_line_or_the_job() -> None:
+    fold = digest._Fold(job_done={"j": ("completed", 0), "k": ("completed", 2)},
+                        commands=[{"job": "j", "text": "[status: completed, exit code: 0]"}])
+    plain = {"text": "boom\n[exit code: 3]", "background": None}
+    assert digest._command_result(plain, fold) == (3, "failed", plain["text"])
+    assert digest._command_result({"text": "fine", "background": None}, fold) == (None, "ok", "fine")
+    assert digest._command_result({"text": "x", "background": "j"}, fold)[:2] == (0, "ok")
+    assert digest._command_result({"text": "x", "background": "k"}, fold)[:2] == (2, "failed")
+    assert digest._command_result({"text": "x", "background": "z"}, fold)[:2] == (None, "running")
+
+
+def test_verb_counts_skip_noise_and_merge_interpreter_versions() -> None:
+    shell = [{"segments": digest.analyze("python3.11 a.py && python b.py && ls")}]
+    counts = digest._verb_counts(shell)
+    assert counts["python"] == 2 and counts["ls"] == 1
+
+
+def test_verification_says_whether_a_check_ran_after_the_last_edit() -> None:
+    edit = [{"seq": 5, "edit": True}]
+    assert digest._verification([], [], edit) == {
+        "checkedAfterLastEdit": False, "note": "no command matched as a check"}
+    assert digest._verification([], [], []) == {"checkedAfterLastEdit": None,
+                                                "note": "no command matched as a check"}
+    assert digest._verification([{"seq": 9, "ok": True}], [], edit) == {
+        "checkedAfterLastEdit": True, "lastCheckOk": True}
+    assert digest._verification([{"seq": 3, "ok": False}], [], edit) == {
+        "checkedAfterLastEdit": False, "lastCheckOk": False}
+
+
+def test_optional_sections_appear_only_when_there_is_something_to_say() -> None:
+    digest_out: dict = {"shell": {}}
+    digest._optional_sections(digest_out, digest._Fold(), [], [], [], "/w")
+    assert digest_out == {"shell": {}}
+    fold = digest._Fold(edited={"/etc/hosts": 1}, goals=[{"seq": 1}], errors=[{"seq": 2}], refused=1)
+    digest._optional_sections(digest_out, fold, [{"command": "rm x"}], [{"command": "python -c 1"}],
+                              [{"cmd": "make"}], "/w")
+    assert digest_out["shell"] == {"writeCommands": ["rm x"], "opaqueCommands": ["python -c 1"]}
+    assert digest_out["failed"] == [{"cmd": "make"}] and digest_out["goalsCreatedByWorker"] == [{"seq": 1}]
+    assert digest_out["errors"] == {"count": 1, "refused": 1, "last": [{"seq": 2}]}
+    assert digest_out["editedOutsideWorktree"] == ["/etc/hosts"]
+
+
+def test_edited_view_uses_the_worktree_or_the_common_root() -> None:
+    fold = digest._Fold(edited={"/p/src/a.py": 2, "/p/src/b.py": 1})
+    assert digest._edited_view(fold, "/p") == {"edited": ["/p/src/a.py x2", "/p/src/b.py"]}
+    assert digest._edited_view(fold, None) == {"root": "/p/src", "edited": ["a.py x2", "b.py"]}

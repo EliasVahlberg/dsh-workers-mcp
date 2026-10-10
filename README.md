@@ -204,7 +204,7 @@ uv run python scripts/complexity.py
 
 CI runs these on every push and pull request, with the tests on Python 3.10, 3.11, 3.12 and 3.13. The last command is a complexity ratchet. `complexity-baseline.json` records each function with a cyclomatic complexity of 11 or more. A new function above that, or a rise in a recorded one, fails the check. After you lower one, run `uv run python scripts/complexity.py --update` and commit the file.
 
-326 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
+335 tests, no live server needed. They cover the places where a mistake is quiet and not loud:
 - reasoning blocks that leak into replies (a real bug: reasoning blocks and answer blocks both carry a `text` field)
 - turn-end reasons that nothing reports
 - answer batching and its validation rules, which are not obvious
