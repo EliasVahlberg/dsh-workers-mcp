@@ -269,8 +269,8 @@ carries its cause (`user`, `parent`, `hook`, `disposed` or `legacy`). `error`
 carries a structured `LlmFailure`. The server passes both through verbatim.
 
 `latestReply.text` can be **empty while `reasoningChars` is large**. This is a
-turn whose committed message held only reasoning blocks. Measured on a real
-57-turn session: empty text, and 878 characters of reasoning. Do not treat an
+turn whose committed message held only reasoning blocks. From the author's testing, on a real
+57-turn session (the session is private): empty text, and 878 characters of reasoning. Do not treat an
 empty reply as "the worker said nothing". Check `lastTurnEnd` and `dsh_pending`
 before you conclude anything.
 
@@ -453,10 +453,10 @@ on a real 39-turn session:
   prompt-context contributions when compaction removes them. So steering at the
   level of `AGENTS.md` cannot erode through compaction.
 * `compactNow()` runs as idle maintenance and **returns null without writing when
-  no useful range exists**. In the measured session, 29 `start`/`end` brackets
+  no useful range exists**. In the author's session, 29 `start`/`end` brackets
   produced only **15** real summaries. The other 14 were no-ops. Count
   summaries, not brackets.
-* The measured effect on behaviour across those cycles: the read:edit ratio
+* The effect on behaviour across those cycles, from the author's testing: the read:edit ratio
   stayed flat (0.44, 0.40, 0.41). The error rate *improved* (6.6% to 3.8%). The
   cache hit rate stayed at 97%. Long-lived sessions are the right default.
 
@@ -519,8 +519,8 @@ created session reported the new value. An `llm-pi-ai` model entry with no
 262,144 and "a guess by construction". That guess made a real session compact
 about four times more often than necessary.
 
-**But an existing session keeps the window it was created with.** The 57-turn
-qwen worker still reports `window: 262144` after someone corrected
+**But an existing session keeps the window it was created with.** In the author's testing, a 57-turn
+qwen worker still reported `window: 262144` after someone corrected
 `settings.yaml` to 1,000,000. Only the sessions created afterwards see the new
 value. So the longest-lived and best-oriented worker is the one that still pays
 the old compaction rate. That is the opposite of what you want. Compare

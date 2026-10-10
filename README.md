@@ -2,7 +2,7 @@
 
 An MCP server that drives **long-lived [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) sessions as persistent workers**. An orchestrating agent in any working directory uses it to dispatch work to the workers, answer the questions that block them, and inspect what they did.
 
-The premise: a `dsh` worker session builds up orientation, and orientation is expensive. In testing, a 57-turn session held about 13 hours of model time at a 97% cache-hit rate. To throw that away for each task is waste. These tools treat workers as teammates that you keep. They do not treat workers as functions that you call.
+The premise: a `dsh` worker session builds up orientation, and orientation is expensive. In the author's testing, a 57-turn session held about 13 hours of model time at a 97% cache-hit rate. That session is private, so you cannot reproduce the figure. To throw that away for each task is waste. These tools treat workers as teammates that you keep. They do not treat workers as functions that you call.
 
 The runtime is **stdlib-only**. It has no dependencies, and that includes a WebSocket reader that we wrote by hand. The goal is that it can sit beside an agent harness and not add a dependency tree to it.
 
@@ -10,11 +10,32 @@ The runtime is **stdlib-only**. It has no dependencies, and that includes a WebS
 
 ## What it is not
 
+**Not affiliated with DeepSeek.** This is an independent project. DeepSeek does not make, endorse or support it. It drives the open-source [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) through the HTTP API of that program.
+
 **Not an [A2A](https://a2a-protocol.org/) implementation.** It has no Agent Cards, no `message/send` and no Task lifecycle. We evaluated A2A and declined it on purpose. Its guiding principle is *opaque execution*. About half of the value here is the opposite: the tools show context pressure, cache-hit rates, step counts, turn-end reasons and reasoning-block sizes, so that an orchestrator can supervise closely. [`docs/A2A_EVAL.md`](docs/A2A_EVAL.md) gives the reasoning. It also names the three A2A ideas that are worth borrowing, and the conditions that would change the verdict.
 
 In the taxonomy of A2A itself, this is an agent-to-agent capability that runs over an agent-to-tool transport. That is a real tradeoff, not an oversight. It works for one orchestrator that drives local workers. It stops working when a worker must *start* contact and not only respond.
 
 **Not general-purpose.** Every operation is specific to the HTTP API, the event types and the projections of `dsh`. It is not an abstraction over agent frameworks.
+
+## Status
+
+This is alpha (0.1.0). Tool names, tool arguments and the state format can change. The state format has a compatibility test against files from an older version.
+
+**What ran**
+- The tests run against a stand-in dsh, in CI on Python 3.10 to 3.13. CI also runs ruff, mypy, the complexity ratchet and the import-layer check.
+- Read-only commands (`dshctl list`, `dshctl pending`, `host.describe`, the `dsh-wake` dry run and `dsh_list` over the MCP server) ran against a live dsh, package version `0.1.1-rc.2`, commit `b150a55`.
+- The original tools ran against a live dsh in a long project. The author did that testing.
+
+**What did not run**
+- The calls that change state (`dsh_create`, `dsh_fork`, `dsh_name`, `dsh_cancel`, `dsh_permission`, `dsh_task`, `dsh_ask`) ran against the stand-in only, since the client interface was added. The shape check does not cover them.
+- The shape check covers 7 read-only methods. It does not cover stream frames or the two POST endpoints.
+- The quick start ran end to end only with a scripted worker. No model ran, and no one else has followed it.
+- `dsh-wake` has not run against a real client.
+- The sandbox wrapper passes its self-test. A nested `bwrap` inside it does not start (see [`docs/SANDBOX.md`](docs/SANDBOX.md)).
+- The tools in the "Tests" section that ran only against a fake are named there.
+
+If you find a difference between these notes and what you see, open an issue.
 
 ## Requirements
 
@@ -185,7 +206,7 @@ The rule is **the server writes facts, the orchestrator writes judgment**. Judgm
 - **Cached state is "last observed".** Every snapshot carries `observedAt`. While dsh is up, the live tools are the source of truth.
 - **Recording never changes a result.** If a call succeeded and writing the state then fails, the success stands. The server appends a `[state: …]` note. So the orchestrator never sends again work that already happened.
 
-Measured: the first mirror of a session with 12,649 events (2,500 tool calls) takes 4.6 s and 24 MB. Later syncs of an unchanged session take 0.3 s. Keep `logs/` and `history/` out of version control. They hold the full transcripts of workers.
+From the author's testing, on one session that you cannot reproduce: the first mirror of a session with 12,649 events (2,500 tool calls) takes 4.6 s and 24 MB. Later syncs of an unchanged session take 0.3 s. Keep `logs/` and `history/` out of version control. They hold the full transcripts of workers.
 
 ## Two facts to know before you build on this
 
@@ -231,7 +252,7 @@ To record the shapes of another dsh, run `uv run python scripts/record-shapes.py
 
 ## Provenance
 
-We checked every transport claim in this repo against a running server and the `dsh` source. We did not infer any of them from documentation. The code began as throwaway scripts in an evaluation workspace, and we extracted it from there.
+We checked the transport claims in this repo against a running server and the `dsh` source when we wrote them. We did not infer them from documentation. [Status](#status) lists what has not run against a live server since. The code began as throwaway scripts in an evaluation workspace, and we extracted it from there.
 
 ## License
 

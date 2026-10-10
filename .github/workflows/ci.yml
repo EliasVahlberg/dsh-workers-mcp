@@ -15,10 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"      # 22.18 or later runs the TypeScript overlay test directly
       - name: Install
         run: uv sync --python ${{ matrix.python-version }}
       - name: Test
-        run: uv run pytest
+        run: uv run pytest -rs
 
   lint:
     runs-on: ubuntu-latest
