@@ -64,6 +64,16 @@ go ahead if that is within your remit.
   before and after each operation" cannot. A green suite says the tests pass,
   not that they measure the right thing: read the assertions behind every
   invariant line (§6);
+- **names every variant** the behaviour must hold for. "The transfer works"
+  can pass with two of four directions covered; "all four directions, each
+  asserted" cannot. List the axes (each direction, each input kind, each way
+  two ranges can overlap or be joined, empty, one, many) and put the list in the
+  acceptance line. A line that says "works" without listing its variants is a
+  dispatch defect, and a suite that is green on the variants nobody listed says
+  little. Where the line is about flow or progress ("items arrive", "the job
+  finishes"), ask for a throughput or termination assertion too: a count of
+  what was not lost cannot see a livelock, where the same item moves back and
+  forth forever;
 - is **sized to the change.** A constants change or a small fix needs the
   change, the existing suite green, and a doc line. New test classes or
   harnesses only where the task introduces an invariant the suite cannot

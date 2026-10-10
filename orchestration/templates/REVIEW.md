@@ -16,9 +16,15 @@ code; say where a claim would need a run to confirm.
 
 Work in this order, and report what you have when you reach about 40 tool
 calls (80 for a batch), even if unfinished (say what you did not get to):
-- first, the acceptance lines that state invariants (conservation, save/load,
+- first, list the **variants** the tests exercise and the ones they do not
+  (each direction, input kind, ordering, size, empty/one/many, each way two
+  things can be combined), before you judge anything. A green suite is evidence
+  only about the first list. Then say which of the second list the code could
+  get wrong;
+- then the acceptance lines that state invariants (conservation, save/load,
   concurrency, anything "never"/"always"): does each test actually measure
-  it, or could it pass while the invariant fails?
+  it, or could it pass while the invariant fails? A count of what was not lost
+  cannot see a livelock; is there a throughput or termination check?
 - then the code paths those tests do not reach;
 - then everything else.
 
