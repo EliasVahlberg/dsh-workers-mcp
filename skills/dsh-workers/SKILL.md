@@ -160,8 +160,10 @@ persistent `approval/requested` as a stall that needs a person, not a bug.
 
 Every worker has a permission preset. Pick it when you hire the worker
 (`dsh_create` with `permission`), before anything is dispatched. Presets need
-the `tool-policy` overlay (in `deepseek-harness-eval/plugins/tool-policy/`)
-composed into the running `dsh`. Without it only the stock presets exist.
+the `tool-policy` overlay that ships with this package (render it with
+`dshctl policy-patch`, then start `dsh` with `--patch <file>`; the rules are data
+you can extend, see its README) composed into the running `dsh`. Without it
+only the stock presets exist.
 
 | Preset | You get | Use for |
 |---|---|---|

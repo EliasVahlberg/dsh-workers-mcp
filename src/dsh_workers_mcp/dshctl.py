@@ -624,6 +624,31 @@ def set_permission(session_id: str, preset: str, base: str) -> dict:
     return {"previous": before["preset"], **after}
 
 
+OVERLAY_DIR = Path(__file__).resolve().parent / "overlays" / "tool-policy"
+
+
+def render_policy_patch() -> str:
+    """The tool-policy patch with the plugin's absolute path filled in (dsh needs one)."""
+    path = str(OVERLAY_DIR).replace("'", "''")      # the template single-quotes it (YAML)
+    return (OVERLAY_DIR / "policy.patch.yml").read_text(encoding="utf-8") \
+        .replace("@PLUGIN_DIR@", path)
+
+
+def cmd_policy_patch(args) -> int:
+    rendered = render_policy_patch()
+    if not args.out:
+        sys.stdout.write(rendered)
+        return 0
+    target = Path(args.out).expanduser()
+    if target.exists() and not args.force:
+        raise RpcError(f"{target} exists; pass --force to overwrite it")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(rendered, encoding="utf-8")
+    print(f"wrote {target}\ncheck it:  dsh --patch {target} --dump-config\n"
+          f"use it:    dsh --patch {target} --profile <profile>", file=sys.stderr)
+    return 0
+
+
 def cmd_permission(args) -> int:
     session_id = find_session(args.session, args.base)["sessionId"]
     if args.preset:
@@ -1415,6 +1440,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("preset", nargs="?", help="omit to show the current preset")
     p.add_argument("--force", action="store_true", help="switch even while mid-turn")
     p.set_defaults(func=cmd_permission)
+
+    p = subparsers.add_parser("policy-patch", help="print or write the tool-policy dsh patch "
+                              "(supervision-level presets), with this install's plugin path")
+    p.add_argument("--out", help="write here instead of stdout")
+    p.add_argument("--force", action="store_true", help="overwrite --out if it exists")
+    p.set_defaults(func=cmd_policy_patch)
 
     p = subparsers.add_parser("name", help="pin a title on a session")
     p.add_argument("session")

@@ -1,0 +1,6 @@
+{
+  "name": "dsh-tool-policy",
+  "private": true,
+  "type": "module",
+  "description": "Per-permission-preset allow/deny/ask rules for dsh tool calls. Loaded by absolute path via policy.patch.yml. `type: module` is load-bearing: without it Node resolves this out-of-tree .ts file as CommonJS and the dsh loader fails with ERR_REQUIRE_CYCLE_MODULE."
+}

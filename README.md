@@ -119,8 +119,15 @@ state directory. Gate them deliberately: a worker acts on an
 answer or approval with full tool access.
 
 Supervision-level presets (`read-only` / `supervised` / `autonomous`) come from
-the `tool-policy` dsh overlay in `deepseek-harness-eval/plugins/tool-policy/`.
-They control **scope, not security**: see that README and the skill.
+the `tool-policy` dsh overlay that ships in this package. Render it with
+`dshctl policy-patch --out ~/.dsh/tool-policy.patch.yml`, check it with
+`dsh --patch <file> --dump-config --profile <profile>`, and start `dsh` with
+`--patch <file>`. The rules are plain data you can extend; see
+[`overlays/tool-policy/README.md`](src/dsh_workers_mcp/overlays/tool-policy/README.md).
+They control **scope, not security**: reads and the network stay open, and bash
+rules match command text. The overlay was composed with `--dump-config` for this
+release; its live-boot checks (a denied `git push`, an approval raised) are from
+the author's earlier testing of the same plugin.
 
 ## The method
 
@@ -226,7 +233,7 @@ Both are covered in more detail, with source citations, in the skill.
 uv run pytest            # or: PYTHONPATH=src python3 -m pytest
 ```
 
-258 tests, no live server needed. They cover the places where being wrong is
+267 tests, no live server needed. They cover the places where being wrong is
 quiet rather than loud: reasoning blocks leaking into replies (a real bug —
 reasoning and answer blocks both carry a `text` field), turn-end reasons being
 swallowed, answer batching and its non-obvious validation rules, an unreachable
@@ -242,8 +249,8 @@ later turns; and `dsh_cancel` separates a real abort from a lost race.
 ## Provenance
 
 Every transport claim here was verified against a running server and the `dsh`
-source, not inferred from documentation. Extracted from
-`deepseek-harness-eval`, where it began as throwaway scripts.
+source, not inferred from documentation. It began as throwaway scripts in an
+evaluation workspace and was extracted from there.
 
 ## License
 

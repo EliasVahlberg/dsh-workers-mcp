@@ -1,0 +1,122 @@
+# Supervision-level permission presets + the tool-policy plugin.
+#
+# This file is a TEMPLATE: `@PLUGIN_DIR@` must be an absolute path (dsh loads the
+# plugin by absolute path), so render it rather than passing it to dsh as is:
+#
+#   dshctl policy-patch --out ~/.dsh/tool-policy.patch.yml
+#   dsh --patch ~/.dsh/tool-policy.patch.yml --profile web      # one-off
+#
+# or copy the rendered entries into the profile's cordis.patch.yml to make them
+# permanent. Check the composition first: `dsh --patch <file> --dump-config`.
+# To add or change a rule, edit the `rules:` lists below (see README.md).
+#
+# A worker's supervision level is chosen by setting its preset
+# (`/permission <name>`, which the orchestrator sends via
+# /api/commands/execute so it never reaches the model).
+#
+#   preset              sandbox             approval  meaning
+#   read-only           read-only           ask       reviewers / verifiers
+#   supervised          workspace-write     ask       policy `ask` rules and sandbox escalations reach an approver
+#   autonomous          workspace-write     never     everything that would ask is rejected outright; never blocks
+#   danger-full-access  danger-full-access  never     unconfined; set by a human only
+#
+# `supervised` replaces the stock `workspace-write` entry. They would be the same
+# bundle, and dsh resolves a shared bundle to the first table match, so keeping
+# both makes the name a session reports depend on declaration order. Existing
+# sessions recorded as `workspace-write` resolve to `supervised` (the recorded
+# selection only wins while it is still a table key).
+#
+# NOT a security boundary. Rules on bash match command text and are evadable;
+# the sandbox modes confine file writes only, not reads or network. See
+# plugins/tool-policy/index.ts.
+
+# Non-insert patches replace the entry's ENTIRE config, so the whole preset
+# table and defaultPreset are restated here.
+- id: permission
+  config:
+    defaultPreset: supervised
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+        description: Read-only filesystem. For reviewers and verifiers.
+      supervised:
+        sandbox: workspace-write
+        approval: ask
+        description: Writes stay in the workspace; scoped actions ask an approver.
+      autonomous:
+        sandbox: workspace-write
+        approval: never
+        description: Writes stay in the workspace; anything that would ask is rejected. Never blocks.
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+        description: Unconfined. Human use only.
+
+- insert:
+    - id: tool-policy
+      name: '@PLUGIN_DIR@/index.ts'
+      config:
+        presets:
+          supervised:
+            default: allow
+            rules:
+              - tool: web_fetch
+                decision: ask
+                reason: web_fetch runs outside the sandbox and can carry data out in its URL
+              - tool: web_search
+                decision: ask
+                reason: web_search runs outside the sandbox and sends queries to a third party
+              - tool: bash
+                argument: command
+                pattern: '\bgit\b(\s+(-[A-Za-z]\s+\S+|--?[\w-]+(=\S+)?))*\s+push\b'
+                decision: ask
+                reason: git push publishes work beyond the worktree
+          autonomous:
+            default: allow
+            rules:
+              - tool: web_fetch
+                decision: deny
+                reason: web access is not permitted for autonomous workers
+              - tool: web_search
+                decision: deny
+                reason: web access is not permitted for autonomous workers
+              - tool: bash
+                argument: command
+                pattern: '\bgit\b(\s+(-[A-Za-z]\s+\S+|--?[\w-]+(=\S+)?))*\s+push\b'
+                decision: deny
+                reason: autonomous workers commit locally; the orchestrator merges and pushes
+          read-only:
+            default: allow
+            rules:
+              - tool: write
+                decision: deny
+                reason: this worker is read-only; report findings instead of editing
+              - tool: edit
+                decision: deny
+                reason: this worker is read-only; report findings instead of editing
+          danger-full-access:
+            default: allow
+            rules: []
+        # `custom` (knobs matching no preset), unknown names, and missing
+        # preset service. Also what a subagent of a read-only worker gets.
+        fallback:
+          default: allow
+          rules:
+            - tool: write
+              decision: deny
+              reason: permission state is unrecognised; failing closed
+            - tool: edit
+              decision: deny
+              reason: permission state is unrecognised; failing closed
+            - tool: web_fetch
+              decision: deny
+              reason: permission state is unrecognised; failing closed
+            - tool: web_search
+              decision: deny
+              reason: permission state is unrecognised; failing closed
+            - tool: bash
+              argument: command
+              pattern: '\bgit\b(\s+(-[A-Za-z]\s+\S+|--?[\w-]+(=\S+)?))*\s+push\b'
+              decision: deny
+              reason: permission state is unrecognised; failing closed
