@@ -15,6 +15,10 @@ Commit each step when the tests are green. Continue until the whole task is
 done. If your turn must end first, report where you are and what comes next.
 Ask when you are stuck.
 
+Checks: while you work, run `<narrow command>`. Before each commit, run
+`<commit command>`. The lead runs `<merge command>` before the merge. A narrow
+run that takes as long as the commit run did not filter. Stop and report it.
+
 Acceptance (the lead checks each line itself, without relying on your report):
 - <A checkable line, for example `make test` passes.>
 - <A checkable line, for example a test in tests/… asserts X.>

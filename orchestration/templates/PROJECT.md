@@ -20,7 +20,12 @@ copy into it>`
 ## Build and test
 
 - Build: `<command>`
-- Test: `<command>`
+- Test, narrowest: `<command>`. One file or one test. The check for use while a
+  worker edits.
+- Test, before each commit: `<command>`
+- Test, before a merge: `<command>`. The lead runs it. Say so in each brief.
+- Check timings: `<seconds for each of the three checks, and the date you
+  measured them>`. Measure again when one takes twice as long.
 - Models: `<which model and effort to use for debugging and design, and which for routine pieces>`
 - Known traps: `<…>`
 - Found only by hand: `<Paths that a headless suite cannot reach, for example

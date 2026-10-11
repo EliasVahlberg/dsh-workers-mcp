@@ -92,6 +92,16 @@ next unless you object." Then go ahead, if that is within your remit.
   when a small change turns into a rewrite. If a piece is at the top of the range
   you would accept, treat that as a sign to split it at a natural seam, and do
   not accept the size.
+- **corrects the estimate with the history of the project.** After each merge,
+  write the actual size and the expected size in the task note. Before you write
+  the next estimate, take the ratio of the last few tasks and multiply by it. An
+  estimate that is low every time makes every stop line late.
+- names the **checks by tier**: the narrowest check for use while the worker
+  edits, the check before each commit, and the check that only the lead runs
+  before a merge. A slow suite that runs in full after each small edit uses a lot
+  of time. Say that a narrow run that takes as long as a full run did not filter.
+  The worker stops and reports it. A filter that is silently ignored looks like a
+  slow test, and nobody sees it.
 - says what is out of scope, so that the worker does not "improve" its
   neighbours.
 
